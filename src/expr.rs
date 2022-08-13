@@ -32,13 +32,16 @@ macro_rules! parse {
 
         parse!(@push $items, Subexpr::Sub(lhs_index, rhs_index))
     }};
+    (@internal $items:ident, ( $($expr:tt)+ )) => {{
+        parse!(@reverse $items, internal, [$($expr),+], [])
+    }};
     (@internal $items:ident, $($expression:tt) , +) => {
-        parse!(@reverse $items, error, [$($expression),+], []);
+        parse!(@reverse $items, error, [$($expression),+], [])
     };
     (@error $items:ident, $($expression:tt) , +) => {
         compile_error!(concat!("Unexpected expression: '",
                                $(stringify!($expression) ),*,
-                               "'"));
+                               "'"))
     };
     (@reverse $items:ident, $next:ident, [], [$($rev:tt),*]) => {
         parse!(@$next $items, $($rev),*)
@@ -114,6 +117,22 @@ mod test {
                 Subexpr::Add(0, 1),
                 Subexpr::Int(10),
                 Subexpr::Sub(2, 3),
+            ],
+        };
+        assert_eq!(parsed, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_parentheses() -> Result<(), Error> {
+        let parsed = parse![5 + (15 - 10)];
+        let expected = Expr {
+            items: vec![
+                Subexpr::Int(5),
+                Subexpr::Int(15),
+                Subexpr::Int(10),
+                Subexpr::Sub(1, 2),
+                Subexpr::Add(0, 3),
             ],
         };
         assert_eq!(parsed, expected);

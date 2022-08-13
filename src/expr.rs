@@ -1,13 +1,35 @@
 #[derive(PartialEq, Eq, Debug)]
 pub struct Expr {
-    items: Vec<Subexpr>,
+    items: Vec<Element>,
 }
 
 #[derive(PartialEq, Eq, Debug)]
-pub enum Subexpr {
+pub enum Element {
     Int(i64),
     Add(usize, usize),
     Sub(usize, usize),
+}
+
+pub struct SubExpr<'a> {
+    items: &'a [Element],
+}
+
+impl<'a> SubExpr<'a> {
+    fn child<'b>(&self, rel_index: usize) -> SubExpr<'b>
+    where
+        'a: 'b,
+    {
+        let index = self.items.len() - rel_index;
+        SubExpr {
+            items: &self.items[..index],
+        }
+    }
+}
+
+impl<'a> From<&'a Expr> for SubExpr<'a> {
+    fn from(expr: &'a Expr) -> Self {
+        Self { items: &expr.items }
+    }
 }
 
 macro_rules! parse {
@@ -17,7 +39,7 @@ macro_rules! parse {
     }};
 
     (@internal $items:ident, $num:literal) => {{
-        parse!(@push $items, Subexpr::Int($num))
+        parse!(@push $items, Element::Int($num))
     }};
 
     (@internal $items:ident, $rhs:tt, +, $($lhs:tt),+) => {{
@@ -25,14 +47,14 @@ macro_rules! parse {
         let rhs_index = parse!(@internal $items, $rhs);
         let sum_index = $items.len();
 
-        parse!(@push $items, Subexpr::Add(sum_index - lhs_index, sum_index - rhs_index))
+        parse!(@push $items, Element::Add(sum_index - lhs_index, sum_index - rhs_index))
     }};
     (@internal $items:ident, $rhs:tt, -, $($lhs:tt),+) => {{
         let lhs_index = parse!(@internal $items, $($lhs),+);
         let rhs_index = parse!(@internal $items, $rhs);
         let diff_index = $items.len();
 
-        parse!(@push $items, Subexpr::Sub(diff_index - lhs_index, diff_index - rhs_index))
+        parse!(@push $items, Element::Sub(diff_index - lhs_index, diff_index - rhs_index))
     }};
     (@internal $items:ident, ( $($expr:tt)+ )) => {{
         parse!(@reverse $items, internal, [$($expr),+], [])
@@ -67,7 +89,7 @@ mod test {
     fn test_parse_int() -> Result<(), Error> {
         let parsed = parse![5];
         let expected = Expr {
-            items: vec![Subexpr::Int(5)],
+            items: vec![Element::Int(5)],
         };
         assert_eq!(parsed, expected);
         Ok(())
@@ -77,7 +99,7 @@ mod test {
     fn test_parse_addition() -> Result<(), Error> {
         let parsed = parse![5 + 10];
         let expected = Expr {
-            items: vec![Subexpr::Int(5), Subexpr::Int(10), Subexpr::Add(2, 1)],
+            items: vec![Element::Int(5), Element::Int(10), Element::Add(2, 1)],
         };
         assert_eq!(parsed, expected);
         Ok(())
@@ -88,11 +110,11 @@ mod test {
         let parsed = parse![5 + 10 + 15];
         let expected = Expr {
             items: vec![
-                Subexpr::Int(5),
-                Subexpr::Int(10),
-                Subexpr::Add(2, 1),
-                Subexpr::Int(15),
-                Subexpr::Add(2, 1),
+                Element::Int(5),
+                Element::Int(10),
+                Element::Add(2, 1),
+                Element::Int(15),
+                Element::Add(2, 1),
             ],
         };
         assert_eq!(parsed, expected);
@@ -103,7 +125,7 @@ mod test {
     fn test_parse_subtraction() -> Result<(), Error> {
         let parsed = parse![5 - 10];
         let expected = Expr {
-            items: vec![Subexpr::Int(5), Subexpr::Int(10), Subexpr::Sub(2, 1)],
+            items: vec![Element::Int(5), Element::Int(10), Element::Sub(2, 1)],
         };
         assert_eq!(parsed, expected);
         Ok(())
@@ -114,11 +136,11 @@ mod test {
         let parsed = parse![5 + 15 - 10];
         let expected = Expr {
             items: vec![
-                Subexpr::Int(5),
-                Subexpr::Int(15),
-                Subexpr::Add(2, 1),
-                Subexpr::Int(10),
-                Subexpr::Sub(2, 1),
+                Element::Int(5),
+                Element::Int(15),
+                Element::Add(2, 1),
+                Element::Int(10),
+                Element::Sub(2, 1),
             ],
         };
         assert_eq!(parsed, expected);
@@ -130,11 +152,11 @@ mod test {
         let parsed = parse![5 + (15 - 10)];
         let expected = Expr {
             items: vec![
-                Subexpr::Int(5),
-                Subexpr::Int(15),
-                Subexpr::Int(10),
-                Subexpr::Sub(2, 1),
-                Subexpr::Add(4, 1),
+                Element::Int(5),
+                Element::Int(15),
+                Element::Int(10),
+                Element::Sub(2, 1),
+                Element::Add(4, 1),
             ],
         };
         assert_eq!(parsed, expected);

@@ -5,6 +5,10 @@ pub struct Expr {
     items: Vec<Element>,
 }
 
+pub struct SubExpr<'a> {
+    items: &'a [Element],
+}
+
 #[derive(PartialEq, Eq, Debug)]
 pub enum Element {
     Int(i64),
@@ -12,11 +16,15 @@ pub enum Element {
     Sub(usize, usize),
 }
 
-pub struct SubExpr<'a> {
-    items: &'a [Element],
-}
-
 impl<'a> SubExpr<'a> {
+    fn top(&self) -> &Element {
+        self.items.last().unwrap()
+    }
+
+    fn child_element(&self, rel_index: usize) -> &Element {
+        &self.items[self.items.len() - 1 - rel_index]
+    }
+
     fn child<'b>(&self, rel_index: usize) -> SubExpr<'b>
     where
         'a: 'b,
@@ -24,6 +32,16 @@ impl<'a> SubExpr<'a> {
         let index = self.items.len() - rel_index;
         SubExpr {
             items: &self.items[..index],
+        }
+    }
+}
+
+impl Element {
+    fn precedence(&self) -> Option<usize> {
+        use Element::*;
+        match self {
+            Add(_, _) | Sub(_, _) => Some(1),
+            Int(_) => None,
         }
     }
 }
@@ -41,13 +59,43 @@ impl Display for Expr {
     }
 }
 
+impl<'a> SubExpr<'a> {
+    fn display_binary_op(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        op: &str,
+        lhs: usize,
+        rhs: usize,
+    ) -> std::fmt::Result {
+        let precedence = self.top().precedence().unwrap();
+        let lhs_precedence = self.child_element(lhs).precedence();
+        let rhs_precedence = self.child_element(rhs).precedence();
+
+        if lhs_precedence.map_or(true, |p| p <= precedence) {
+            write!(f, "{}", self.child(lhs))?;
+        } else {
+            write!(f, "({})", self.child(lhs))?;
+        }
+
+        write!(f, " {op} ")?;
+
+        if rhs_precedence.map_or(true, |p| p < precedence) {
+            write!(f, "{}", self.child(rhs))?;
+        } else {
+            write!(f, "({})", self.child(rhs))?;
+        }
+
+        Ok(())
+    }
+}
+
 impl<'a> Display for SubExpr<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use Element::*;
         match self.items.last().unwrap() {
             Int(val) => write!(f, "{}", val),
-            Add(lhs, rhs) => write!(f, "{} + {}", self.child(*lhs), self.child(*rhs)),
-            Sub(lhs, rhs) => write!(f, "{} - {}", self.child(*lhs), self.child(*rhs)),
+            Add(lhs, rhs) => self.display_binary_op(f, "+", *lhs, *rhs),
+            Sub(lhs, rhs) => self.display_binary_op(f, "-", *lhs, *rhs),
         }
     }
 }
@@ -213,9 +261,9 @@ mod test {
         Ok(())
     }
 
-    // #[test]
-    // fn test_format_parentheses() {
-    //     let parsed = parse![5 + 10];
-    //     assert_eq!(format!("{}", parsed), "5 + (15 - 10)");
-    // }
+    #[test]
+    fn test_format_parentheses() {
+        let parsed = parse![5 + (15 - 10)];
+        assert_eq!(format!("{}", parsed), "5 + (15 - 10)");
+    }
 }

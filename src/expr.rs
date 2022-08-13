@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 #[derive(PartialEq, Eq, Debug)]
 pub struct Expr {
     items: Vec<Element>,
@@ -29,6 +31,24 @@ impl<'a> SubExpr<'a> {
 impl<'a> From<&'a Expr> for SubExpr<'a> {
     fn from(expr: &'a Expr) -> Self {
         Self { items: &expr.items }
+    }
+}
+
+impl Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let view: SubExpr = self.into();
+        write!(f, "{}", view)
+    }
+}
+
+impl<'a> Display for SubExpr<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Element::*;
+        match self.items.last().unwrap() {
+            Int(val) => write!(f, "{}", val),
+            Add(lhs, rhs) => write!(f, "{} + {}", self.child(*lhs), self.child(*rhs)),
+            Sub(lhs, rhs) => write!(f, "{} - {}", self.child(*lhs), self.child(*rhs)),
+        }
     }
 }
 
@@ -96,6 +116,12 @@ mod test {
     }
 
     #[test]
+    fn test_format_int() {
+        let parsed = parse![42];
+        assert_eq!(format!("{}", parsed), "42");
+    }
+
+    #[test]
     fn test_parse_addition() -> Result<(), Error> {
         let parsed = parse![5 + 10];
         let expected = Expr {
@@ -103,6 +129,12 @@ mod test {
         };
         assert_eq!(parsed, expected);
         Ok(())
+    }
+
+    #[test]
+    fn test_format_addition() {
+        let parsed = parse![5 + 10];
+        assert_eq!(format!("{}", parsed), "5 + 10");
     }
 
     #[test]
@@ -122,6 +154,12 @@ mod test {
     }
 
     #[test]
+    fn test_format_multiple_addition() {
+        let parsed = parse![5 + 10 + 15];
+        assert_eq!(format!("{}", parsed), "5 + 10 + 15");
+    }
+
+    #[test]
     fn test_parse_subtraction() -> Result<(), Error> {
         let parsed = parse![5 - 10];
         let expected = Expr {
@@ -129,6 +167,12 @@ mod test {
         };
         assert_eq!(parsed, expected);
         Ok(())
+    }
+
+    #[test]
+    fn test_format_subtraction() {
+        let parsed = parse![5 - 10];
+        assert_eq!(format!("{}", parsed), "5 - 10");
     }
 
     #[test]
@@ -148,6 +192,12 @@ mod test {
     }
 
     #[test]
+    fn test_format_mixed_addition_subtraction() {
+        let parsed = parse![5 + 15 - 10];
+        assert_eq!(format!("{}", parsed), "5 + 15 - 10");
+    }
+
+    #[test]
     fn test_parse_parentheses() -> Result<(), Error> {
         let parsed = parse![5 + (15 - 10)];
         let expected = Expr {
@@ -162,4 +212,10 @@ mod test {
         assert_eq!(parsed, expected);
         Ok(())
     }
+
+    // #[test]
+    // fn test_format_parentheses() {
+    //     let parsed = parse![5 + 10];
+    //     assert_eq!(format!("{}", parsed), "5 + (15 - 10)");
+    // }
 }

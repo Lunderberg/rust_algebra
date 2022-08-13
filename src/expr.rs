@@ -23,14 +23,16 @@ macro_rules! parse {
     (@internal $items:ident, $rhs:tt, +, $($lhs:tt),+) => {{
         let lhs_index = parse!(@internal $items, $($lhs),+);
         let rhs_index = parse!(@internal $items, $rhs);
+        let sum_index = $items.len();
 
-        parse!(@push $items, Subexpr::Add(lhs_index, rhs_index))
+        parse!(@push $items, Subexpr::Add(sum_index - lhs_index, sum_index - rhs_index))
     }};
     (@internal $items:ident, $rhs:tt, -, $($lhs:tt),+) => {{
         let lhs_index = parse!(@internal $items, $($lhs),+);
         let rhs_index = parse!(@internal $items, $rhs);
+        let diff_index = $items.len();
 
-        parse!(@push $items, Subexpr::Sub(lhs_index, rhs_index))
+        parse!(@push $items, Subexpr::Sub(diff_index - lhs_index, diff_index - rhs_index))
     }};
     (@internal $items:ident, ( $($expr:tt)+ )) => {{
         parse!(@reverse $items, internal, [$($expr),+], [])
@@ -75,7 +77,7 @@ mod test {
     fn test_parse_addition() -> Result<(), Error> {
         let parsed = parse![5 + 10];
         let expected = Expr {
-            items: vec![Subexpr::Int(5), Subexpr::Int(10), Subexpr::Add(0, 1)],
+            items: vec![Subexpr::Int(5), Subexpr::Int(10), Subexpr::Add(2, 1)],
         };
         assert_eq!(parsed, expected);
         Ok(())
@@ -88,9 +90,9 @@ mod test {
             items: vec![
                 Subexpr::Int(5),
                 Subexpr::Int(10),
-                Subexpr::Add(0, 1),
+                Subexpr::Add(2, 1),
                 Subexpr::Int(15),
-                Subexpr::Add(2, 3),
+                Subexpr::Add(2, 1),
             ],
         };
         assert_eq!(parsed, expected);
@@ -101,7 +103,7 @@ mod test {
     fn test_parse_subtraction() -> Result<(), Error> {
         let parsed = parse![5 - 10];
         let expected = Expr {
-            items: vec![Subexpr::Int(5), Subexpr::Int(10), Subexpr::Sub(0, 1)],
+            items: vec![Subexpr::Int(5), Subexpr::Int(10), Subexpr::Sub(2, 1)],
         };
         assert_eq!(parsed, expected);
         Ok(())
@@ -114,9 +116,9 @@ mod test {
             items: vec![
                 Subexpr::Int(5),
                 Subexpr::Int(15),
-                Subexpr::Add(0, 1),
+                Subexpr::Add(2, 1),
                 Subexpr::Int(10),
-                Subexpr::Sub(2, 3),
+                Subexpr::Sub(2, 1),
             ],
         };
         assert_eq!(parsed, expected);
@@ -131,8 +133,8 @@ mod test {
                 Subexpr::Int(5),
                 Subexpr::Int(15),
                 Subexpr::Int(10),
-                Subexpr::Sub(1, 2),
-                Subexpr::Add(0, 3),
+                Subexpr::Sub(2, 1),
+                Subexpr::Add(4, 1),
             ],
         };
         assert_eq!(parsed, expected);

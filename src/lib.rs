@@ -7,3 +7,6 @@ pub use error::*;
 
 mod expr;
 pub use expr::*;
+
+mod parser;
+pub use parser::*;

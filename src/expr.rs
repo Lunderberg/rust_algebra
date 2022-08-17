@@ -2,15 +2,15 @@ use std::fmt::Display;
 
 #[derive(PartialEq, Eq, Debug)]
 pub struct Expr {
-    items: Vec<Element>,
+    pub(crate) items: Vec<Element>,
 }
 
-pub struct SubExpr<'a> {
+pub(crate) struct SubExpr<'a> {
     items: &'a [Element],
 }
 
 #[derive(PartialEq, Eq, Debug)]
-pub enum Element {
+pub(crate) enum Element {
     Int(i64),
     Add(usize, usize),
     Sub(usize, usize),
@@ -100,6 +100,7 @@ impl<'a> Display for SubExpr<'a> {
     }
 }
 
+#[macro_export]
 macro_rules! parse {
     (@push $items:ident, $subexpr: expr) => {{
         $items.push($subexpr);
@@ -117,6 +118,7 @@ macro_rules! parse {
 
         parse!(@push $items, Element::Add(sum_index - lhs_index, sum_index - rhs_index))
     }};
+
     (@internal $items:ident, $rhs:tt, -, $($lhs:tt),+) => {{
         let lhs_index = parse!(@internal $items, $($lhs),+);
         let rhs_index = parse!(@internal $items, $rhs);
@@ -124,9 +126,11 @@ macro_rules! parse {
 
         parse!(@push $items, Element::Sub(diff_index - lhs_index, diff_index - rhs_index))
     }};
+
     (@internal $items:ident, ( $($expr:tt)+ )) => {{
         parse!(@reverse $items, internal, [$($expr),+], [])
     }};
+
     (@internal $items:ident, $($expression:tt) , +) => {
         parse!(@reverse $items, error, [$($expression),+], [])
     };

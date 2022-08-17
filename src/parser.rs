@@ -10,6 +10,12 @@ pub enum Token {
     Plus,
 }
 
+#[derive(PartialOrd, Ord, PartialEq, Eq)]
+enum OperatorPrecedence {
+    Expr,
+    AddSub,
+}
+
 struct Tokenizer<I>
 where
     I: Iterator<Item = char>,
@@ -23,6 +29,17 @@ where
 {
     tokens: Peekable<I>,
     items: Vec<Element>,
+}
+
+impl Token {
+    fn operator_precedence(&self) -> Option<OperatorPrecedence> {
+        use Token::*;
+        match self {
+            IntLiteral(_) => None,
+            Minus => Some(OperatorPrecedence::AddSub),
+            Plus => Some(OperatorPrecedence::AddSub),
+        }
+    }
 }
 
 impl<I> Tokenizer<I>
@@ -61,6 +78,10 @@ where
     }
 
     fn expect_expr(&mut self) -> Result<()> {
+        self.expect_expr_precedence(OperatorPrecedence::Expr)
+    }
+
+    fn expect_expr_precedence(&mut self, parent_precedence: OperatorPrecedence) -> Result<()> {
         self.tokens
             .next()
             .ok_or(Error::UnexpectedEndOfExpr)?
@@ -81,18 +102,21 @@ where
                 Ok(())
             })?;
 
-        if let Some(op) = self
+        while let Some(op) = self
             .tokens
             .next_if(|res| match res {
-                Ok(Token::Plus) => true,
+                Ok(token) => token
+                    .operator_precedence()
+                    .map_or(false, |prec| prec > parent_precedence),
                 _ => false,
             })
             .map(|res| res.unwrap())
         {
+            let prec = op.operator_precedence().unwrap();
             match op {
                 Token::Plus => {
                     let lhs_index = self.items.len();
-                    self.expect_expr()?;
+                    self.expect_expr_precedence(prec)?;
                     let rhs_index = self.items.len();
                     let out_index = self.items.len() + 1;
                     let item = Element::Add(out_index - lhs_index, out_index - rhs_index);

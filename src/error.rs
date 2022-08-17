@@ -8,7 +8,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("Parse error")]
     ParseError,
-    #[error("Unexpected character: {0}")]
+    #[error("Unexpected character: '{0}'")]
     UnexpectedCharacter(char),
     #[error("Unexpected end of expr")]
     UnexpectedEndOfExpr,

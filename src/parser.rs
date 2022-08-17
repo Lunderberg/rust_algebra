@@ -7,7 +7,7 @@ use super::{Element, Error, Expr, Result};
 pub enum Token {
     IntLiteral(i64),
     Minus,
-    // Plus,
+    Plus,
 }
 
 struct Tokenizer<I>
@@ -68,13 +68,44 @@ where
                 let item = match token {
                     Token::IntLiteral(val) => Element::Int(val),
                     Token::Minus => self.try_int().map_or_else(
-                        || panic!("Unary NOT not implemented"),
+                        || panic!("Unary Minus not implemented for expressions"),
                         |val| Element::Int(-val),
                     ),
+                    Token::Plus => self.try_int().map_or_else(
+                        || panic!("Unary Plus not implemented for expressions"),
+                        |val| Element::Int(val),
+                    ),
                 };
+                println!("Pushing item {:?}", item);
                 self.items.push(item);
                 Ok(())
+            })?;
+
+        if let Some(op) = self
+            .tokens
+            .next_if(|res| match res {
+                Ok(Token::Plus) => true,
+                _ => false,
             })
+            .map(|res| res.unwrap())
+        {
+            match op {
+                Token::Plus => {
+                    let lhs_index = self.items.len();
+                    self.expect_expr()?;
+                    let rhs_index = self.items.len();
+                    let out_index = self.items.len() + 1;
+                    let item = Element::Add(out_index - lhs_index, out_index - rhs_index);
+                    println!("Pushing item {:?}", item);
+                    self.items.push(item);
+                }
+                _ => {
+                    panic!()
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn expect_end(&mut self) -> Result<()> {
@@ -108,29 +139,33 @@ where
     type Item = Result<Token>;
 
     fn next(&mut self) -> Option<Result<Token>> {
-        self.iter.next().map(|c| match c {
-            '0'..='9' => {
-                let mut val: i64 = c.to_digit(10).unwrap() as i64;
-                loop {
-                    match self.iter.peek() {
-                        Some('0'..='9') => {
-                            let c = self.iter.next().unwrap();
-                            let digit = c.to_digit(10).unwrap() as i64;
-                            val = val * 10 + digit;
-                        }
-                        _ => {
-                            break;
+        self.iter
+            .by_ref()
+            .skip_while(|c| c.is_whitespace())
+            .next()
+            .map(|c| match c {
+                '0'..='9' => {
+                    let mut val: i64 = c.to_digit(10).unwrap() as i64;
+                    loop {
+                        match self.iter.peek() {
+                            Some('0'..='9') => {
+                                let c = self.iter.next().unwrap();
+                                let digit = c.to_digit(10).unwrap() as i64;
+                                val = val * 10 + digit;
+                            }
+                            _ => {
+                                break;
+                            }
                         }
                     }
+                    Ok(Token::IntLiteral(val))
                 }
-                Ok(Token::IntLiteral(val))
-            }
 
-            '-' => Ok(Token::Minus),
+                '-' => Ok(Token::Minus),
+                '+' => Ok(Token::Plus),
 
-            // '+' => Ok(Token::Plus),
-            _ => Err(Error::UnexpectedCharacter(c)),
-        })
+                _ => Err(Error::UnexpectedCharacter(c)),
+            })
     }
 }
 
@@ -170,6 +205,16 @@ mod test {
 
     #[test]
     fn test_parse_addition() -> Result<()> {
+        let parsed: Expr = "5+10".parse()?;
+        let expected = Expr {
+            items: vec![Element::Int(5), Element::Int(10), Element::Add(2, 1)],
+        };
+        assert_eq!(parsed, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_addition_with_spaces() -> Result<()> {
         let parsed: Expr = "5 + 10".parse()?;
         let expected = Expr {
             items: vec![Element::Int(5), Element::Int(10), Element::Add(2, 1)],

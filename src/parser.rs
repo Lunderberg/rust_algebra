@@ -113,20 +113,21 @@ where
             .map(|res| res.unwrap())
         {
             let prec = op.operator_precedence().unwrap();
-            match op {
-                Token::Plus => {
-                    let lhs_index = self.items.len();
-                    self.expect_expr_precedence(prec)?;
-                    let rhs_index = self.items.len();
-                    let out_index = self.items.len() + 1;
-                    let item = Element::Add(out_index - lhs_index, out_index - rhs_index);
-                    println!("Pushing item {:?}", item);
-                    self.items.push(item);
-                }
-                _ => {
-                    panic!()
-                }
-            }
+            let lhs_index = self.items.len();
+            self.expect_expr_precedence(prec)?;
+            let rhs_index = self.items.len();
+            let out_index = self.items.len() + 1;
+
+            let lhs_offset = out_index - lhs_index;
+            let rhs_offset = out_index - rhs_index;
+
+            let item = match op {
+                Token::Plus => Element::Add(lhs_offset, rhs_offset),
+                Token::Minus => Element::Sub(lhs_offset, rhs_offset),
+                _ => panic!(),
+            };
+
+            self.items.push(item);
         }
 
         Ok(())

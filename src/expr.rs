@@ -14,6 +14,7 @@ pub(crate) enum Element {
     Int(i64),
     Add(usize, usize),
     Sub(usize, usize),
+    Mul(usize, usize),
 }
 
 impl<'a> SubExpr<'a> {
@@ -41,6 +42,7 @@ impl Element {
         use Element::*;
         match self {
             Add(_, _) | Sub(_, _) => Some(1),
+            Mul(_, _) => Some(2),
             Int(_) => None,
         }
     }
@@ -96,6 +98,7 @@ impl<'a> Display for SubExpr<'a> {
             Int(val) => write!(f, "{}", val),
             Add(lhs, rhs) => self.display_binary_op(f, "+", *lhs, *rhs),
             Sub(lhs, rhs) => self.display_binary_op(f, "-", *lhs, *rhs),
+            Mul(lhs, rhs) => self.display_binary_op(f, "*", *lhs, *rhs),
         }
     }
 }

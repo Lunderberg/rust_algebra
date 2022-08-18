@@ -8,6 +8,7 @@ pub enum Token {
     IntLiteral(i64),
     Minus,
     Plus,
+    Multiply,
     LeftParen,
     RightParen,
 }
@@ -16,6 +17,7 @@ pub enum Token {
 enum OperatorPrecedence {
     Expr,
     AddSub,
+    MulDiv,
 }
 
 struct Tokenizer<I>
@@ -40,6 +42,7 @@ impl Token {
             IntLiteral(_) => None,
             Minus => Some(OperatorPrecedence::AddSub),
             Plus => Some(OperatorPrecedence::AddSub),
+            Multiply => Some(OperatorPrecedence::MulDiv),
             LeftParen => None,
             RightParen => None,
         }
@@ -127,7 +130,7 @@ where
                         self.expect_token(Token::RightParen)?;
                         Ok(None)
                     }
-                    Token::RightParen => Err(Error::UnexpectedToken(token)),
+                    Token::RightParen | Token::Multiply => Err(Error::UnexpectedToken(token)),
                 }
             })
             .and_then(|opt_el| {
@@ -159,6 +162,7 @@ where
             let item = match op {
                 Token::Plus => Element::Add(lhs_offset, rhs_offset),
                 Token::Minus => Element::Sub(lhs_offset, rhs_offset),
+                Token::Multiply => Element::Mul(lhs_offset, rhs_offset),
                 _ => panic!(),
             };
 
@@ -223,6 +227,7 @@ where
 
                 '-' => Ok(Token::Minus),
                 '+' => Ok(Token::Plus),
+                '*' => Ok(Token::Multiply),
 
                 '(' => Ok(Token::LeftParen),
                 ')' => Ok(Token::RightParen),
@@ -337,6 +342,48 @@ mod test {
                 Element::Int(15),
                 Element::Int(10),
                 Element::Sub(2, 1),
+                Element::Add(4, 1),
+            ],
+        };
+        assert_eq!(parsed, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_multiply() -> Result<()> {
+        let parsed: Expr = "5 * 10".parse()?;
+        let expected = Expr {
+            items: vec![Element::Int(5), Element::Int(10), Element::Mul(2, 1)],
+        };
+        assert_eq!(parsed, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_multiply_left_precedence() -> Result<()> {
+        let parsed: Expr = "5 * 10 + 15".parse()?;
+        let expected = Expr {
+            items: vec![
+                Element::Int(5),
+                Element::Int(10),
+                Element::Mul(2, 1),
+                Element::Int(15),
+                Element::Add(2, 1),
+            ],
+        };
+        assert_eq!(parsed, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_multiply_right_precedence() -> Result<()> {
+        let parsed: Expr = "5 + 10 * 15".parse()?;
+        let expected = Expr {
+            items: vec![
+                Element::Int(5),
+                Element::Int(10),
+                Element::Int(15),
+                Element::Mul(2, 1),
                 Element::Add(4, 1),
             ],
         };

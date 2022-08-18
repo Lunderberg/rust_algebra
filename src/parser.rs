@@ -9,6 +9,7 @@ pub enum Token {
     Minus,
     Plus,
     Multiply,
+    Divide,
     LeftParen,
     RightParen,
 }
@@ -43,6 +44,7 @@ impl Token {
             Minus => Some(OperatorPrecedence::AddSub),
             Plus => Some(OperatorPrecedence::AddSub),
             Multiply => Some(OperatorPrecedence::MulDiv),
+            Divide => Some(OperatorPrecedence::MulDiv),
             LeftParen => None,
             RightParen => None,
         }
@@ -130,7 +132,9 @@ where
                         self.expect_token(Token::RightParen)?;
                         Ok(None)
                     }
-                    Token::RightParen | Token::Multiply => Err(Error::UnexpectedToken(token)),
+                    Token::RightParen | Token::Multiply | Token::Divide => {
+                        Err(Error::UnexpectedToken(token))
+                    }
                 }
             })
             .and_then(|opt_el| {
@@ -163,6 +167,7 @@ where
                 Token::Plus => Element::Add(lhs_offset, rhs_offset),
                 Token::Minus => Element::Sub(lhs_offset, rhs_offset),
                 Token::Multiply => Element::Mul(lhs_offset, rhs_offset),
+                Token::Divide => Element::Div(lhs_offset, rhs_offset),
                 _ => panic!(),
             };
 
@@ -228,6 +233,7 @@ where
                 '-' => Ok(Token::Minus),
                 '+' => Ok(Token::Plus),
                 '*' => Ok(Token::Multiply),
+                '/' => Ok(Token::Divide),
 
                 '(' => Ok(Token::LeftParen),
                 ')' => Ok(Token::RightParen),
@@ -385,6 +391,34 @@ mod test {
                 Element::Int(15),
                 Element::Mul(2, 1),
                 Element::Add(4, 1),
+            ],
+        };
+        assert_eq!(parsed, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_divide() -> Result<()> {
+        let parsed: Expr = "5 / 10".parse()?;
+        let expected = Expr {
+            items: vec![Element::Int(5), Element::Int(10), Element::Div(2, 1)],
+        };
+        assert_eq!(parsed, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_mixed_multiply_divide() -> Result<()> {
+        let parsed: Expr = "2 * 5 / 10 * 42".parse()?;
+        let expected = Expr {
+            items: vec![
+                Element::Int(2),
+                Element::Int(5),
+                Element::Mul(2, 1),
+                Element::Int(10),
+                Element::Div(2, 1),
+                Element::Int(42),
+                Element::Mul(2, 1),
             ],
         };
         assert_eq!(parsed, expected);

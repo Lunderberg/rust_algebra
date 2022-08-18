@@ -4,7 +4,7 @@ use crate::Token;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Error, Copy, Clone)]
+#[derive(Error, Clone)]
 pub enum Error {
     #[error("Parse error")]
     ParseError,
@@ -14,6 +14,8 @@ pub enum Error {
     UnexpectedEndOfExpr,
     #[error("Unexpected token: {0:?}")]
     UnexpectedToken(Token),
+    #[error("Not yet implemented: {0}")]
+    NotImplemented(String),
 }
 
 impl std::fmt::Debug for Error {

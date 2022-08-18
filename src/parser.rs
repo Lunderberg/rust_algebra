@@ -3,11 +3,13 @@ use std::str::FromStr;
 
 use super::{Element, Error, Expr, Result};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Token {
     IntLiteral(i64),
     Minus,
     Plus,
+    LeftParen,
+    RightParen,
 }
 
 #[derive(PartialOrd, Ord, PartialEq, Eq)]
@@ -38,6 +40,8 @@ impl Token {
             IntLiteral(_) => None,
             Minus => Some(OperatorPrecedence::AddSub),
             Plus => Some(OperatorPrecedence::AddSub),
+            LeftParen => None,
+            RightParen => None,
         }
     }
 }
@@ -81,24 +85,55 @@ where
         self.expect_expr_precedence(OperatorPrecedence::Expr)
     }
 
+    fn expect_token(&mut self, expected: Token) -> Result<()> {
+        self.tokens
+            .next()
+            .ok_or(Error::UnexpectedEndOfExpr)
+            .and_then(|res| res)
+            .and_then(|token| {
+                if token == expected {
+                    Ok(())
+                } else {
+                    Err(Error::UnexpectedToken(token))
+                }
+            })
+    }
+
     fn expect_expr_precedence(&mut self, parent_precedence: OperatorPrecedence) -> Result<()> {
         self.tokens
             .next()
             .ok_or(Error::UnexpectedEndOfExpr)?
-            .and_then(|token: Token| {
-                let item = match token {
-                    Token::IntLiteral(val) => Element::Int(val),
+            .and_then(|token: Token| -> Result<Option<Element>> {
+                match token {
+                    Token::IntLiteral(val) => Ok(Some(Element::Int(val))),
                     Token::Minus => self.try_int().map_or_else(
-                        || panic!("Unary Minus not implemented for expressions"),
-                        |val| Element::Int(-val),
+                        || {
+                            Err(Error::NotImplemented(
+                                "Unary Minus not implemented for expressions".to_string(),
+                            ))
+                        },
+                        |val| Ok(Some(Element::Int(-val))),
                     ),
                     Token::Plus => self.try_int().map_or_else(
-                        || panic!("Unary Plus not implemented for expressions"),
-                        |val| Element::Int(val),
+                        || {
+                            Err(Error::NotImplemented(
+                                "Unary Plus not implemented for expressions".to_string(),
+                            ))
+                        },
+                        |val| Ok(Some(Element::Int(val))),
                     ),
-                };
-                println!("Pushing item {:?}", item);
-                self.items.push(item);
+                    Token::LeftParen => {
+                        self.expect_expr()?;
+                        self.expect_token(Token::RightParen)?;
+                        Ok(None)
+                    }
+                    Token::RightParen => Err(Error::UnexpectedToken(token)),
+                }
+            })
+            .and_then(|opt_el| {
+                if let Some(element) = opt_el {
+                    self.items.push(element);
+                }
                 Ok(())
             })?;
 
@@ -134,7 +169,7 @@ where
     }
 
     fn expect_end(&mut self) -> Result<()> {
-        self.tokens.peek().as_ref().map_or_else(
+        self.tokens.next().map_or_else(
             || Ok(()),
             |res| Err(res.map_or_else(|err| err, |token| Error::UnexpectedToken(token))),
         )
@@ -188,6 +223,9 @@ where
 
                 '-' => Ok(Token::Minus),
                 '+' => Ok(Token::Plus),
+
+                '(' => Ok(Token::LeftParen),
+                ')' => Ok(Token::RightParen),
 
                 _ => Err(Error::UnexpectedCharacter(c)),
             })

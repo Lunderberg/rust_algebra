@@ -1,7 +1,7 @@
 use std::iter::Peekable;
 use std::str::FromStr;
 
-use super::{Element, Error, Expr, Result};
+use crate::{Element, Error, Expr, OperatorPrecedence, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Token {
@@ -12,13 +12,6 @@ pub enum Token {
     Divide,
     LeftParen,
     RightParen,
-}
-
-#[derive(PartialOrd, Ord, PartialEq, Eq)]
-enum OperatorPrecedence {
-    Expr,
-    AddSub,
-    MulDiv,
 }
 
 struct Tokenizer<I>

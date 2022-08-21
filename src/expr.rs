@@ -18,6 +18,13 @@ pub(crate) enum Element {
     Div(usize, usize),
 }
 
+#[derive(PartialOrd, Ord, PartialEq, Eq)]
+pub(crate) enum OperatorPrecedence {
+    Expr,
+    AddSub,
+    MulDiv,
+}
+
 impl<'a> SubExpr<'a> {
     fn top(&self) -> &Element {
         self.items.last().unwrap()
@@ -39,12 +46,11 @@ impl<'a> SubExpr<'a> {
 }
 
 impl Element {
-    fn precedence(&self) -> Option<usize> {
+    fn precedence(&self) -> Option<OperatorPrecedence> {
         use Element::*;
         match self {
-            Add(_, _) | Sub(_, _) => Some(1),
-            Mul(_, _) => Some(2),
-            Div(_, _) => Some(2),
+            Add(_, _) | Sub(_, _) => Some(OperatorPrecedence::AddSub),
+            Mul(_, _) | Div(_, _) => Some(OperatorPrecedence::MulDiv),
             Int(_) => None,
         }
     }

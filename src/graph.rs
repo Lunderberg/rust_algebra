@@ -3,6 +3,106 @@ use std::marker::PhantomData;
 
 use crate::{Error, Result};
 
+// macro_rules! wrap_graph_ref {
+//     ([] $opt_type:ty ) => {
+//         i64
+//     };
+// }
+
+// macro_rules! make_graph {
+//     [$(enum $enum_name:ident {
+//         $($opt_name:ident($($opt_type:ty),*)),* $(,)?
+//     })*] => {
+//         $(
+//             enum $enum_name {
+//                 $($opt_name($(wrap_graph_ref!([$($enum_name),*] $opt_type)),*)),*
+//             }
+//         )*
+//     };
+// }
+
+macro_rules! make_graph_impl {
+    [@entry, [$($enum_names:tt),*], $enum_bodies:tt] => {
+        make_graph_impl![@graph_ref_enums,
+                         [$($enum_names),*],
+                         [$($enum_names),*],
+                         $enum_bodies];
+    };
+
+    [@graph_ref_enums, $all_enum_names:tt, [$($enum_name:tt),*], [$($enum_body:tt),*]] => {
+        $(make_graph_impl![@graph_ref_enum,
+                         $all_enum_names,
+                         $enum_name,
+                         $enum_body];)*
+    };
+
+    [@graph_ref_enum, $all_enum_names:tt, $enum_name:tt, { $($variant_name:tt ( $($variant_type:ty),* ) ),* $(,)? } ] => {
+        enum $enum_name {
+            $(
+                $variant_name($(make_graph_impl![@graph_ref_type, $all_enum_names, $variant_type]),*),
+            )*
+        }
+    };
+
+    [@graph_ref_type, [$type:ty $(, $rest:ty)*], $type:ty] => {
+        SUCCESS
+    };
+
+    [@graph_ref_type, [$first:ty $(, $rest:ty)*], $type:ty] => {
+        make_graph_impl![@graph_ref_type, [$($rest),*], $type]
+    };
+
+    [@graph_ref_type, [], $type:ty] => {
+        $type
+    };
+
+
+
+
+    [@enum_names, $(enum $enum_name:tt $enum_body:tt)*] => {
+        [$($enum_name)*]
+    };
+
+    [@enum_name, enum $enum_name:tt $enum_body:tt] => {
+        $enum_name
+    };
+
+    [@graph_ref_enums, $all_enum_defs:tt, [$($enum_def:tt)*]] => {
+        $(make_graph_impl!{@graph_ref_enum,
+                      $all_enum_defs,
+                      $enum_def})*
+    };
+
+    [@graph_ref_enum, $all_enum_defs:tt, $enum_body:tt] => {
+        FAIL $enum_body
+    };
+}
+
+macro_rules! make_graph {
+    [$(enum $enum_names:tt $enum_bodies:tt)*] => {
+        make_graph_impl![@entry,
+                         [$($enum_names),*],
+                         [$($enum_bodies),*]];
+    };
+}
+
+mod temp {
+    trace_macros!(true);
+    make_graph! {
+        enum IntExpr {
+            Int(i64),
+            Add(i64, i64),
+            Sub(IntExpr, IntExpr),
+        }
+
+        enum BoolExpr {
+            Bool(bool),
+        }
+    }
+    trace_macros!(false);
+    assert!(false);
+}
+
 #[allow(dead_code)]
 struct GraphRef<T> {
     rel_pos: usize,

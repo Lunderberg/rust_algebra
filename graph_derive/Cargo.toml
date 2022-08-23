@@ -1,14 +1,13 @@
 [package]
-name = "algebra"
+name = "graph_derive"
 version = "0.1.0"
 edition = "2021"
+
+[lib]
+proc-macro = true
+path = "src/graph_derive.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# itertools = "*"
-thiserror = "*"
-graph_derive = { path = "graph_derive" }
-
-[lib]
-name = "algebra"
+itertools = "*"

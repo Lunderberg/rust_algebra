@@ -8,25 +8,36 @@ use proc_macro::{Delimiter, Group, Ident, Punct, Spacing, Span, TokenStream, Tok
 
 use itertools::Itertools;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct EnumDef {
     enum_type: Type,
     variants: Vec<EnumVariant>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Type {
     name: Ident,
-    generics: Vec<Type>,
+    generics: Vec<Generic>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+enum Generic {
+    Type(Type),
+    Lifetime(Lifetime),
+}
+
+#[derive(Debug, Clone)]
+struct Lifetime {
+    name: Ident,
+}
+
+#[derive(Debug, Clone)]
 struct EnumVariant {
     name: Ident,
     params: EnumVariantParams,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum EnumVariantParams {
     None,
     Tuple(Vec<Type>),
@@ -36,6 +47,8 @@ enum EnumVariantParams {
 trait Parser {
     fn next_enum(&mut self) -> Option<EnumDef>;
     fn next_ident(&mut self) -> Option<Ident>;
+    fn next_generic(&mut self) -> Option<Generic>;
+    fn next_lifetime(&mut self) -> Option<Lifetime>;
     fn next_type(&mut self) -> Option<Type>;
     fn next_enum_variant(&mut self) -> Option<EnumVariant>;
     fn next_enum_variant_params(&mut self) -> EnumVariantParams;
@@ -100,17 +113,38 @@ impl<I: Iterator<Item = TokenTree>> Parser for Peekable<I> {
         }
     }
 
+    fn next_generic(&mut self) -> Option<Generic> {
+        if self.peek_punct('\'') {
+            self.next_lifetime().map(|lifetime| lifetime.into())
+        } else {
+            self.next_type().map(|kind| kind.into())
+        }
+    }
+
+    fn next_lifetime(&mut self) -> Option<Lifetime> {
+        match self.next()? {
+            TokenTree::Punct(p) if p.as_char() == '\'' && p.spacing() == Spacing::Joint => {}
+            tt => {
+                panic!("Expected lifetime to have ' prefix, but found {tt}")
+            }
+        }
+
+        let ident = self.next_ident().expect("Lifetime missing identifier");
+        Some(Lifetime { name: ident })
+    }
+
     fn next_type(&mut self) -> Option<Type> {
         let name = self.next_ident()?;
         let generics = if self.peek_punct('<') {
             self.expect_punct('<');
-            std::iter::from_fn(|| -> Option<Type> {
+            std::iter::from_fn(|| -> Option<Generic> {
                 let tt = self.next().expect("No matching > found in type generic");
                 match tt {
                     TokenTree::Punct(p) if p.as_char() == '>' => None,
-                    TokenTree::Punct(p) if p.as_char() == ',' => {
-                        Some(self.next_type().expect("Expected type"))
-                    }
+                    TokenTree::Punct(p) if p.as_char() == ',' => Some(
+                        self.next_generic()
+                            .expect("Expected lifetime or type argument"),
+                    ),
                     _ => {
                         panic!("Expected type, but found {tt}")
                     }
@@ -190,6 +224,53 @@ impl<I: Iterator<Item = TokenTree>> Parser for Peekable<I> {
     }
 }
 
+impl EnumDef {
+    fn map_types<F>(self, mut update_type: F) -> Self
+    where
+        F: FnMut(Type) -> Type,
+    {
+        let variants = self
+            .variants
+            .into_iter()
+            .map(|variant| {
+                let params = match variant.params {
+                    EnumVariantParams::None => EnumVariantParams::None,
+                    EnumVariantParams::Tuple(types) => EnumVariantParams::Tuple(
+                        types.into_iter().map(|t| update_type(t)).collect(),
+                    ),
+                    EnumVariantParams::Struct(items) => EnumVariantParams::Struct(
+                        items
+                            .into_iter()
+                            .map(|(ident, t)| (ident, update_type(t)))
+                            .collect(),
+                    ),
+                };
+                EnumVariant {
+                    name: variant.name.clone(),
+                    params,
+                }
+            })
+            .collect();
+
+        Self {
+            enum_type: self.enum_type,
+            variants,
+        }
+    }
+}
+
+impl From<Type> for Generic {
+    fn from(kind: Type) -> Self {
+        Generic::Type(kind)
+    }
+}
+
+impl From<Lifetime> for Generic {
+    fn from(lifetime: Lifetime) -> Self {
+        Generic::Lifetime(lifetime)
+    }
+}
+
 impl Display for EnumDef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.variants.is_empty() {
@@ -205,6 +286,21 @@ impl Display for EnumDef {
                     .join("")
             )
         }
+    }
+}
+
+impl Display for Generic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Generic::Type(kind) => write!(f, "{}", kind),
+            Generic::Lifetime(lifetime) => write!(f, "{}", lifetime),
+        }
+    }
+}
+
+impl Display for Lifetime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "'{}", self.name)
     }
 }
 
@@ -259,6 +355,23 @@ impl Into<TokenStream> for EnumDef {
         let keyword: TokenTree = Ident::new("enum", Span::call_site()).into();
         let streams: Vec<TokenStream> = vec![keyword.into(), self.enum_type.into(), body.into()];
         streams.into_iter().collect()
+    }
+}
+
+impl Into<TokenStream> for Generic {
+    fn into(self) -> TokenStream {
+        match self {
+            Generic::Type(kind) => kind.into(),
+            Generic::Lifetime(lifetime) => lifetime.into(),
+        }
+    }
+}
+
+impl Into<TokenStream> for Lifetime {
+    fn into(self) -> TokenStream {
+        let tokens: Vec<TokenTree> =
+            vec![Punct::new('\'', Spacing::Joint).into(), self.name.into()];
+        tokens.into_iter().collect()
     }
 }
 
@@ -338,40 +451,30 @@ fn with_graph_ref(enum_def: EnumDef, recursive_enums: &HashSet<String>) -> EnumD
             let name = Ident::new("GraphRef", Span::call_site());
             Type {
                 name,
-                generics: vec![t],
+                generics: vec![t.into()],
             }
         } else {
             t
         }
     };
 
-    let variants = enum_def
-        .variants
-        .into_iter()
-        .map(|variant| {
-            let params = match variant.params {
-                EnumVariantParams::None => EnumVariantParams::None,
-                EnumVariantParams::Tuple(types) => {
-                    EnumVariantParams::Tuple(types.into_iter().map(update_type).collect())
-                }
-                EnumVariantParams::Struct(items) => EnumVariantParams::Struct(
-                    items
-                        .into_iter()
-                        .map(|(ident, t)| (ident, update_type(t)))
-                        .collect(),
-                ),
-            };
-            EnumVariant {
-                name: variant.name,
-                params,
-            }
-        })
-        .collect();
+    enum_def.map_types(update_type)
+}
 
-    EnumDef {
-        enum_type: enum_def.enum_type,
-        variants,
-    }
+fn with_live_graph_ref(enum_def: EnumDef, recursive_enums: &HashSet<String>) -> EnumDef {
+    let update_type = |t: Type| -> Type {
+        if recursive_enums.contains(&format!("{}", t.name)) {
+            let name = Ident::new("GraphRef", Span::call_site());
+            Type {
+                name,
+                generics: vec![t.into()],
+            }
+        } else {
+            t
+        }
+    };
+
+    enum_def.map_types(update_type)
 }
 
 #[proc_macro]
@@ -392,10 +495,22 @@ pub fn make_graph(tokens: TokenStream) -> TokenStream {
         .map(|e| format!("{}", e.enum_type.name))
         .collect();
 
-    enum_definitions
-        .into_iter()
+    let graph_ref_enums: TokenStream = enum_definitions
+        .iter()
+        .cloned()
         .map(|e| with_graph_ref(e, &recursive_enums))
         .map(|e| -> TokenStream { e.into() })
+        .collect();
+
+    let live_graph_ref_enums: TokenStream = enum_definitions
+        .iter()
+        .cloned()
+        .map(|e| with_live_graph_ref(e, &recursive_enums))
+        .map(|e| -> TokenStream { e.into() })
+        .collect();
+
+    vec![graph_ref_enums, live_graph_ref_enums]
+        .into_iter()
         .collect()
 
     // "fn answer() -> u64 { 42 }".parse().unwrap()

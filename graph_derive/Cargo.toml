@@ -11,3 +11,4 @@ path = "src/graph_derive.rs"
 
 [dependencies]
 itertools = "*"
+quote = "*"

@@ -1,97 +1,402 @@
+#[allow(unused_imports)]
 use std::collections::HashSet;
+use std::fmt::Display;
+use std::iter::Peekable;
 
-use proc_macro::{Delimiter, Group, Ident, Punct, Spacing, TokenStream, TokenTree};
+#[allow(unused_imports)]
+use proc_macro::{Delimiter, Group, Ident, Punct, Spacing, Span, TokenStream, TokenTree};
 
 use itertools::Itertools;
 
-#[proc_macro]
-pub fn make_graph(tokens: TokenStream) -> TokenStream {
-    let is_enum_ident = |tt: TokenTree| match tt {
-        TokenTree::Ident(ident) if ident.to_string() == "enum" => true,
-        _ => false,
-    };
+#[derive(Debug)]
+struct EnumDef {
+    enum_type: Type,
+    variants: Vec<EnumVariant>,
+}
 
-    let enum_idents: HashSet<String> = tokens
-        .clone()
-        .into_iter()
-        .tuple_windows()
-        .filter_map(|(a, b)| is_enum_ident(a).then_some(b))
-        .filter_map(|tt| match tt {
-            TokenTree::Ident(ident) => Some(ident),
-            _ => None,
-        })
-        .map(|id: Ident| format!("{}", id))
-        .collect();
+#[derive(Debug)]
+struct Type {
+    name: Ident,
+    generics: Vec<Type>,
+}
 
-    let replace_enum_class = |ident: Ident| -> TokenStream {
-        if enum_idents.contains(&format!("{}", ident)) {
-            let tokens: Vec<TokenTree> = vec![
-                Ident::new("GraphRef", ident.span()).into(),
-                Punct::new('<', Spacing::Alone).into(),
-                ident.into(),
-                Punct::new('>', Spacing::Alone).into(),
-            ];
-            tokens.into_iter().collect()
-        } else {
-            std::iter::once::<TokenTree>(ident.into()).collect()
-        }
-    };
+#[derive(Debug)]
+struct EnumVariant {
+    name: Ident,
+    params: EnumVariantParams,
+}
 
-    let update_enum_variant = |variant: Group| -> TokenTree {
-        let stream: TokenStream = match variant.delimiter() {
-            Delimiter::Parenthesis => variant
-                .stream()
-                .into_iter()
-                .map(|tt| match tt {
-                    TokenTree::Ident(ident) => replace_enum_class(ident),
-                    _ => std::iter::once(tt).collect(),
-                })
-                .collect(),
+#[derive(Debug)]
+enum EnumVariantParams {
+    None,
+    Tuple(Vec<Type>),
+    Struct(Vec<(Ident, Type)>),
+}
 
-            Delimiter::Brace => variant
-                .stream()
-                .into_iter()
-                .map(|tt| -> TokenStream {
-                    match tt {
-                        _ => std::iter::once(tt).collect(),
-                    }
-                })
-                .collect(),
-            _ => {
-                panic!(
-                    "Expected () or {{}} in enum variant, but found {:?}",
-                    variant.delimiter()
-                )
+trait Parser {
+    fn next_enum(&mut self) -> Option<EnumDef>;
+    fn next_ident(&mut self) -> Option<Ident>;
+    fn next_type(&mut self) -> Option<Type>;
+    fn next_enum_variant(&mut self) -> Option<EnumVariant>;
+    fn next_enum_variant_params(&mut self) -> EnumVariantParams;
+    fn next_keyword(&mut self, keyword: &str) -> Option<()>;
+    fn expect_punct(&mut self, c: char);
+    fn expect_comma_or_end(&mut self);
+    fn peek_punct(&mut self, c: char) -> bool;
+}
+
+impl<I: Iterator<Item = TokenTree>> Parser for Peekable<I> {
+    fn next_enum(&mut self) -> Option<EnumDef> {
+        self.next_keyword("enum")?;
+        let enum_type = self
+            .next_type()
+            .expect("Expected type definition after 'enum' keyword");
+
+        let tt = self.next().expect("Expected ; or { after enum type name");
+        let variants = match tt {
+            TokenTree::Punct(p) if p.as_char() == ';' => Vec::new(),
+            TokenTree::Group(g) if g.delimiter() == Delimiter::Brace => {
+                let mut tokens = g.stream().into_iter().peekable();
+                std::iter::from_fn(|| tokens.next_enum_variant()).collect()
+            }
+            tt => {
+                panic!("Expected ; or {{ after enum type name, but found {tt}");
             }
         };
 
-        Group::new(variant.delimiter(), stream).into()
-    };
+        Some(EnumDef {
+            enum_type,
+            variants,
+        })
+    }
 
-    let update_enum_body = |body: Group| {
-        Group::new(
-            body.delimiter(),
-            body.stream()
+    fn next_keyword(&mut self, keyword: &str) -> Option<()> {
+        let token = self.next()?;
+        if token.to_string() != keyword {
+            panic!("Expected keyword '{keyword}', but received '{token}'");
+        }
+        Some(())
+    }
+
+    fn peek_punct(&mut self, c: char) -> bool {
+        self.peek().map_or(false, |tt| match tt {
+            TokenTree::Punct(p) if p.as_char() == c => true,
+            _ => false,
+        })
+    }
+
+    fn expect_punct(&mut self, c: char) {
+        let token = self.next().expect("Expected {c}, but hit eof");
+        match token {
+            TokenTree::Punct(p) if p.as_char() == c => {}
+            _ => panic!("Expected {c}, but received {token}"),
+        }
+    }
+
+    fn next_ident(&mut self) -> Option<Ident> {
+        match self.next()? {
+            TokenTree::Ident(ident) => Some(ident),
+            tt => panic!("Expected ident, but found {tt}"),
+        }
+    }
+
+    fn next_type(&mut self) -> Option<Type> {
+        let name = self.next_ident()?;
+        let generics = if self.peek_punct('<') {
+            self.expect_punct('<');
+            std::iter::from_fn(|| -> Option<Type> {
+                let tt = self.next().expect("No matching > found in type generic");
+                match tt {
+                    TokenTree::Punct(p) if p.as_char() == '>' => None,
+                    TokenTree::Punct(p) if p.as_char() == ',' => {
+                        Some(self.next_type().expect("Expected type"))
+                    }
+                    _ => {
+                        panic!("Expected type, but found {tt}")
+                    }
+                }
+            })
+            .collect()
+        } else {
+            Vec::new()
+        };
+        Some(Type { name, generics })
+    }
+
+    fn next_enum_variant(&mut self) -> Option<EnumVariant> {
+        let name = self.next_ident()?;
+        let params = self.next_enum_variant_params();
+        Some(EnumVariant { name, params })
+    }
+
+    fn next_enum_variant_params(&mut self) -> EnumVariantParams {
+        let output = self
+            .next_if(|tt| match tt {
+                TokenTree::Group(_) => true,
+                _ => false,
+            })
+            .map(|tt| match tt {
+                TokenTree::Group(g) => g,
+                _ => panic!("Internal error"),
+            })
+            .map(|group| -> EnumVariantParams {
+                match group.delimiter() {
+                    Delimiter::Parenthesis => {
+                        let mut tokens = group.stream().into_iter().peekable();
+                        let types = std::iter::from_fn(|| -> Option<Type> {
+                            let out = tokens.next_type();
+                            tokens.expect_comma_or_end();
+                            out
+                        }).collect();
+                        EnumVariantParams::Tuple(types)
+                    }
+                    Delimiter::Brace => {
+                        let mut tokens = group.stream().into_iter().peekable();
+                        let types = std::iter::from_fn(|| -> Option<(Ident,Type)> {
+                            let ident = tokens.next_ident()?;
+                            self.expect_punct(':');
+                            let ptype = tokens.next_type().expect(&format!(
+                                "Struct-style enum variant ended without a type for {ident}"
+                            ));
+
+                            tokens.expect_comma_or_end();
+
+                            Some((ident, ptype))
+
+                        }).collect();
+                        EnumVariantParams::Struct(types)
+                    }
+                    _ => {panic!("Expected enum variant parameters to be delimited by braces {{}} or parentheses ().")}
+                }
+            })
+            .unwrap_or(EnumVariantParams::None);
+
+        self.next_if(|tt| match tt {
+            TokenTree::Punct(p) if p.as_char() == ',' => true,
+            _ => false,
+        });
+
+        output
+    }
+
+    fn expect_comma_or_end(&mut self) {
+        match self.next() {
+            None => {}
+            Some(TokenTree::Punct(p)) if p.as_char() == ',' => {}
+            Some(tt) => {
+                panic!("Expected list to be comma-delimited, but found {tt}")
+            }
+        }
+    }
+}
+
+impl Display for EnumDef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.variants.is_empty() {
+            write!(f, "enum {};", self.enum_type)
+        } else {
+            write!(
+                f,
+                "enum {} {{\n{}}}",
+                self.enum_type,
+                self.variants
+                    .iter()
+                    .map(|var| format!("    {var},\n"))
+                    .join("")
+            )
+        }
+    }
+}
+
+impl Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)?;
+        if !self.generics.is_empty() {
+            write!(
+                f,
+                "<{}>",
+                self.generics.iter().map(|t| format!("{}", t)).join(", ")
+            )?;
+        }
+        Ok(())
+    }
+}
+
+impl Display for EnumVariant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", self.name, self.params)
+    }
+}
+
+impl Display for EnumVariantParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EnumVariantParams::None => Ok(()),
+            EnumVariantParams::Tuple(vec) => {
+                write!(f, "({})", vec.iter().map(|t| format!("{}", t)).join(", "))
+            }
+            EnumVariantParams::Struct(vec) => write!(
+                f,
+                "{{{}}}",
+                vec.iter()
+                    .map(|(name, t)| format!("{name}: {t}"))
+                    .join(", ")
+            ),
+        }
+    }
+}
+
+impl Into<TokenStream> for EnumDef {
+    fn into(self) -> TokenStream {
+        let body: TokenTree = Group::new(
+            Delimiter::Brace,
+            self.variants
                 .into_iter()
-                .map(|tt| match tt {
-                    TokenTree::Group(variant) => update_enum_variant(variant),
-                    _ => tt,
-                })
+                .map(|variant| -> TokenStream { variant.into() })
                 .collect(),
         )
+        .into();
+        let keyword: TokenTree = Ident::new("enum", Span::call_site()).into();
+        let streams: Vec<TokenStream> = vec![keyword.into(), self.enum_type.into(), body.into()];
+        streams.into_iter().collect()
+    }
+}
+
+impl Into<TokenStream> for Type {
+    fn into(self) -> TokenStream {
+        let name: TokenTree = self.name.into();
+        if self.generics.is_empty() {
+            name.into()
+        } else {
+            let left: TokenTree = Punct::new('<', Spacing::Alone).into();
+            let right: TokenTree = Punct::new('>', Spacing::Alone).into();
+            let streams: Vec<TokenStream> = vec![
+                name.into(),
+                left.into(),
+                self.generics
+                    .into_iter()
+                    .map(|t| -> TokenStream { t.into() })
+                    .collect(),
+                right.into(),
+            ];
+            streams.into_iter().collect()
+        }
+    }
+}
+
+impl Into<TokenStream> for EnumVariant {
+    fn into(self) -> TokenStream {
+        let name: TokenTree = self.name.into();
+        let comma: TokenTree = Punct::new(',', Spacing::Alone).into();
+        let streams: Vec<TokenStream> = vec![name.into(), self.params.into(), comma.into()];
+        streams.into_iter().collect()
+    }
+}
+
+impl Into<TokenStream> for EnumVariantParams {
+    fn into(self) -> TokenStream {
+        // Silencing the warning about
+        // itertools::Itertools::intersperse.  Can look into it more
+        // later.
+        #[allow(unstable_name_collisions)]
+        match self {
+            EnumVariantParams::None => TokenStream::new(),
+            EnumVariantParams::Tuple(types) => {
+                let body = types
+                    .into_iter()
+                    .map(|t| -> TokenStream { t.into() })
+                    .intersperse({
+                        let tt: TokenTree = Punct::new(',', Spacing::Alone).into();
+                        tt.into()
+                    })
+                    .collect();
+                let group: TokenTree = Group::new(Delimiter::Parenthesis, body).into();
+                group.into()
+            }
+            EnumVariantParams::Struct(items) => {
+                let body = items
+                    .into_iter()
+                    .map(|(name, class)| -> TokenStream {
+                        let name: TokenTree = name.into();
+                        let colon: TokenTree = Punct::new(':', Spacing::Alone).into();
+                        let comma: TokenTree = Punct::new(',', Spacing::Alone).into();
+                        let streams: Vec<TokenStream> =
+                            vec![name.into(), colon.into(), class.into(), comma.into()];
+                        streams.into_iter().collect()
+                    })
+                    .collect();
+                let group: TokenTree = Group::new(Delimiter::Brace, body).into();
+                group.into()
+            }
+        }
+    }
+}
+
+fn with_graph_ref(enum_def: EnumDef, recursive_enums: &HashSet<String>) -> EnumDef {
+    let update_type = |t: Type| -> Type {
+        if recursive_enums.contains(&format!("{}", t.name)) {
+            let name = Ident::new("GraphRef", Span::call_site());
+            Type {
+                name,
+                generics: vec![t],
+            }
+        } else {
+            t
+        }
     };
 
-    let look_behind = std::iter::repeat(None)
-        .take(2)
-        .chain(tokens.clone().into_iter().map(|tt| Some(tt)));
-
-    look_behind
-        .zip(tokens.into_iter())
-        .map(|(prev, tt): (Option<TokenTree>, TokenTree)| -> TokenTree {
-            match (prev.map_or(false, |p| is_enum_ident(p)), tt) {
-                (true, TokenTree::Group(group)) => update_enum_body(group).into(),
-                (_, tt) => tt,
+    let variants = enum_def
+        .variants
+        .into_iter()
+        .map(|variant| {
+            let params = match variant.params {
+                EnumVariantParams::None => EnumVariantParams::None,
+                EnumVariantParams::Tuple(types) => {
+                    EnumVariantParams::Tuple(types.into_iter().map(update_type).collect())
+                }
+                EnumVariantParams::Struct(items) => EnumVariantParams::Struct(
+                    items
+                        .into_iter()
+                        .map(|(ident, t)| (ident, update_type(t)))
+                        .collect(),
+                ),
+            };
+            EnumVariant {
+                name: variant.name,
+                params,
             }
         })
+        .collect();
+
+    EnumDef {
+        enum_type: enum_def.enum_type,
+        variants,
+    }
+}
+
+#[proc_macro]
+pub fn make_graph(tokens: TokenStream) -> TokenStream {
+    let enum_definitions: Vec<_> = {
+        let mut iter = tokens.clone().into_iter().peekable();
+        std::iter::from_fn(|| iter.next_enum()).collect()
+    };
+
+    println!("Enum definitions: {enum_definitions:?}");
+    println!(
+        "Enum definitions: [{}]",
+        enum_definitions.iter().map(|e| format!("\n{e}")).join("")
+    );
+
+    let recursive_enums = enum_definitions
+        .iter()
+        .map(|e| format!("{}", e.enum_type.name))
+        .collect();
+
+    enum_definitions
+        .into_iter()
+        .map(|e| with_graph_ref(e, &recursive_enums))
+        .map(|e| -> TokenStream { e.into() })
         .collect()
+
+    // "fn answer() -> u64 { 42 }".parse().unwrap()
 }

@@ -3,19 +3,27 @@ use std::marker::PhantomData;
 
 use crate::{Error, Result};
 
-mod temp {
-    use graph_derive::make_graph;
+use graph_derive::make_graph;
 
-    make_graph! {
-        enum IntExpr {
-            Int(i64),
-            Add(i64, i64),
-            Sub(IntExpr, IntExpr),
-        }
+make_graph! {
+    enum IntExpr {
+        Int(i64),
+        Add(IntExpr, IntExpr),
+        Sub(IntExpr, IntExpr),
+    }
 
-        enum BoolExpr {
-            Bool(bool),
-        }
+    enum FloatExpr {
+        Float(f64),
+        Add(FloatExpr, FloatExpr),
+        Sub(FloatExpr, FloatExpr),
+    }
+
+    enum BoolExpr {
+        Bool(bool),
+        IntEqual(IntExpr, IntExpr),
+        FloatEqual(FloatExpr, FloatExpr),
+        And(BoolExpr, BoolExpr),
+        Or(BoolExpr, BoolExpr),
     }
 }
 
@@ -32,29 +40,6 @@ impl<T> From<usize> for GraphRef<T> {
             _phantom: PhantomData,
         }
     }
-}
-
-#[allow(dead_code)]
-enum IntExpr {
-    Int(i64),
-    Add(GraphRef<IntExpr>, GraphRef<IntExpr>),
-    Sub(GraphRef<IntExpr>, GraphRef<IntExpr>),
-}
-
-#[allow(dead_code)]
-enum FloatExpr {
-    Float(f64),
-    Add(GraphRef<FloatExpr>, GraphRef<FloatExpr>),
-    Sub(GraphRef<FloatExpr>, GraphRef<FloatExpr>),
-}
-
-#[allow(dead_code)]
-enum BoolExpr {
-    Bool(bool),
-    IntEqual(GraphRef<IntExpr>, GraphRef<IntExpr>),
-    FloatEqual(GraphRef<FloatExpr>, GraphRef<FloatExpr>),
-    And(GraphRef<BoolExpr>, GraphRef<BoolExpr>),
-    Or(GraphRef<BoolExpr>, GraphRef<BoolExpr>),
 }
 
 #[allow(dead_code)]

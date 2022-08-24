@@ -21,6 +21,7 @@ name = "graph_derive"
 version = "0.1.0"
 dependencies = [
  "itertools",
+ "quote",
 ]
 
 [[package]]

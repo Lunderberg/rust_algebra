@@ -22,6 +22,11 @@ impl<T> From<usize> for GraphRef<T> {
 use graph_derive::make_graph;
 
 make_graph! {
+    // First enum must have no items, becomes the template for the
+    // storage enum.
+    #[derive(Debug)]
+    enum Expr;
+
     #[derive(Debug)]
     enum IntExpr {
         Int(i64),
@@ -44,21 +49,6 @@ make_graph! {
         And(BoolExpr, BoolExpr),
         Or(BoolExpr, BoolExpr),
     }
-}
-
-#[allow(dead_code)]
-enum Expr {
-    IntExpr(IntExpr),
-    FloatExpr(FloatExpr),
-    BoolExpr(BoolExpr),
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-enum LiveExpr<'a> {
-    IntExpr(LiveIntExpr<'a>),
-    FloatExpr(LiveFloatExpr<'a>),
-    BoolExpr(LiveBoolExpr<'a>),
 }
 
 // These Into implementations should be replaceable with Provider,

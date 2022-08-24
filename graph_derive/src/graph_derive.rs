@@ -253,12 +253,15 @@ impl EnumDef {
     where
         F: FnMut(&Type) -> Type,
     {
-        let variants = self
-            .variants
-            .iter()
-            .map(|variant| variant.map_types(|t| update_type(t)))
-            .collect();
+        self.with_variants(
+            self.variants
+                .iter()
+                .map(|variant| variant.map_types(|t| update_type(t)))
+                .collect(),
+        )
+    }
 
+    fn with_variants(&self, variants: Vec<EnumVariant>) -> Self {
         Self {
             enum_type: self.enum_type.clone(),
             variants,
@@ -572,15 +575,61 @@ fn with_live_graph_ref(enum_def: EnumDef, recursive_enums: &HashSet<String>) -> 
 
 #[proc_macro]
 pub fn make_graph(tokens: TokenStream) -> TokenStream {
-    let enum_definitions: Vec<_> = {
+    let mut enum_iter = {
         let mut iter = tokens.clone().into_iter().peekable();
-        std::iter::from_fn(|| iter.next_enum()).collect()
+        std::iter::from_fn(move || iter.next_enum())
     };
+    let main_enum = enum_iter.next().expect("No enums found");
+    let enum_definitions: Vec<_> = enum_iter.collect();
 
-    println!(
-        "Enum definitions: [{}]",
-        enum_definitions.iter().map(|e| format!("\n{e}")).join("")
+    let main_enum_storage = main_enum.with_variants(
+        enum_definitions
+            .iter()
+            .map(|e| {
+                let kind = e.enum_type.clone();
+                EnumVariant {
+                    params: EnumVariantParams::Tuple(vec![kind.clone()]),
+                    name: kind.name,
+                }
+            })
+            .collect(),
     );
+
+    let main_enum_live = {
+        let lifetime: Generic = Lifetime {
+            name: Ident::new("a", Span::call_site()),
+        }
+        .into();
+        let name = Ident::new(
+            &format!("Live{}", main_enum.enum_type.name),
+            Span::call_site(),
+        );
+        let variants = enum_definitions
+            .iter()
+            .map(|e| {
+                let live_name = Ident::new(&format!("Live{}", e.enum_type.name), Span::call_site());
+                let generics = std::iter::once(lifetime.clone())
+                    .chain(e.enum_type.generics.iter().cloned())
+                    .collect();
+                let live_type = Type {
+                    name: live_name,
+                    generics,
+                };
+                EnumVariant {
+                    name: e.enum_type.name.clone(),
+                    params: EnumVariantParams::Tuple(vec![live_type.into()]),
+                }
+            })
+            .collect();
+        EnumDef {
+            enum_type: Type {
+                name,
+                generics: vec![lifetime],
+            },
+            variants,
+            attributes: main_enum.attributes.clone(),
+        }
+    };
 
     let recursive_enums = enum_definitions
         .iter()
@@ -591,7 +640,6 @@ pub fn make_graph(tokens: TokenStream) -> TokenStream {
         .iter()
         .cloned()
         .map(|e| with_graph_ref(e, &recursive_enums))
-        .inspect(|e| println!("GraphRef: {e}"))
         .map(|e| -> TokenStream { e.into() })
         .collect();
 
@@ -599,14 +647,15 @@ pub fn make_graph(tokens: TokenStream) -> TokenStream {
         .iter()
         .cloned()
         .map(|e| with_live_graph_ref(e, &recursive_enums))
-        .inspect(|e| println!("LiveGraphRef: {e}"))
         .map(|e| -> TokenStream { e.into() })
-        .inspect(|e| println!("LiveGraphRef: {e}"))
         .collect();
 
-    vec![graph_ref_enums, live_graph_ref_enums]
-        .into_iter()
-        .collect()
-
-    // "fn answer() -> u64 { 42 }".parse().unwrap()
+    vec![
+        main_enum_storage.into(),
+        main_enum_live.into(),
+        graph_ref_enums,
+        live_graph_ref_enums,
+    ]
+    .into_iter()
+    .collect()
 }

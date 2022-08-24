@@ -12,6 +12,12 @@ use itertools::Itertools;
 struct EnumDef {
     enum_type: Type,
     variants: Vec<EnumVariant>,
+    attributes: Vec<Attribute>,
+}
+
+#[derive(Debug, Clone)]
+struct Attribute {
+    attr: Group,
 }
 
 #[derive(Debug, Clone)]
@@ -52,6 +58,7 @@ trait Parser {
     fn next_type(&mut self) -> Option<Type>;
     fn next_enum_variant(&mut self) -> Option<EnumVariant>;
     fn next_enum_variant_params(&mut self) -> EnumVariantParams;
+    fn next_attribute(&mut self) -> Option<Attribute>;
     fn next_keyword(&mut self, keyword: &str) -> Option<()>;
     fn expect_punct(&mut self, c: char);
     fn expect_comma_or_end(&mut self);
@@ -60,6 +67,8 @@ trait Parser {
 
 impl<I: Iterator<Item = TokenTree>> Parser for Peekable<I> {
     fn next_enum(&mut self) -> Option<EnumDef> {
+        let attributes = std::iter::from_fn(|| self.next_attribute()).collect();
+
         self.next_keyword("enum")?;
         let enum_type = self
             .next_type()
@@ -80,6 +89,21 @@ impl<I: Iterator<Item = TokenTree>> Parser for Peekable<I> {
         Some(EnumDef {
             enum_type,
             variants,
+            attributes,
+        })
+    }
+
+    fn next_attribute(&mut self) -> Option<Attribute> {
+        self.next_if(|tt| match tt {
+            TokenTree::Punct(p) if p.as_char() == '#' => true,
+            _ => false,
+        })
+        .map(|_| {
+            let tt = self.next().expect("Unexpected end.  After #, expected a bracket-delimited group defining the attribute.");
+            match tt {
+                TokenTree::Group(attr) if attr.delimiter() == Delimiter::Bracket => Attribute { attr },
+                tt => panic!("After #, expected a bracket-delimited group defining the attribute, but found {tt}"),
+            }
         })
     }
 
@@ -238,6 +262,7 @@ impl EnumDef {
         Self {
             enum_type: self.enum_type.clone(),
             variants,
+            attributes: self.attributes.clone(),
         }
     }
 }
@@ -280,12 +305,17 @@ impl From<Lifetime> for Generic {
 
 impl Display for EnumDef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let attr = self
+            .attributes
+            .iter()
+            .map(|attr| format!("{attr}\n"))
+            .join("");
         if self.variants.is_empty() {
-            write!(f, "enum {};", self.enum_type)
+            write!(f, "{attr}enum {};", self.enum_type)
         } else {
             write!(
                 f,
-                "enum {} {{\n{}}}",
+                "{attr}enum {} {{\n{}}}",
                 self.enum_type,
                 self.variants
                     .iter()
@@ -293,6 +323,12 @@ impl Display for EnumDef {
                     .join("")
             )
         }
+    }
+}
+
+impl Display for Attribute {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#{}", self.attr)
     }
 }
 
@@ -351,6 +387,11 @@ impl Display for EnumVariantParams {
 
 impl Into<TokenStream> for EnumDef {
     fn into(self) -> TokenStream {
+        let attr: TokenStream = self
+            .attributes
+            .into_iter()
+            .map(|attr| -> TokenStream { attr.into() })
+            .collect();
         let body: TokenTree = Group::new(
             Delimiter::Brace,
             self.variants
@@ -360,8 +401,17 @@ impl Into<TokenStream> for EnumDef {
         )
         .into();
         let keyword: TokenTree = Ident::new("enum", Span::call_site()).into();
-        let streams: Vec<TokenStream> = vec![keyword.into(), self.enum_type.into(), body.into()];
+        let streams: Vec<TokenStream> =
+            vec![attr, keyword.into(), self.enum_type.into(), body.into()];
         streams.into_iter().collect()
+    }
+}
+
+impl Into<TokenStream> for Attribute {
+    fn into(self) -> TokenStream {
+        let octothorpe = Punct::new('#', Spacing::Alone);
+        let tokens: Vec<TokenTree> = vec![octothorpe.into(), self.attr.into()];
+        tokens.into_iter().collect()
     }
 }
 
@@ -516,6 +566,7 @@ fn with_live_graph_ref(enum_def: EnumDef, recursive_enums: &HashSet<String>) -> 
     EnumDef {
         enum_type,
         variants,
+        attributes: enum_def.attributes,
     }
 }
 

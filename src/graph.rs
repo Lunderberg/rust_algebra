@@ -4,55 +4,10 @@ use std::marker::PhantomData;
 use crate::{Error, Result};
 
 #[allow(dead_code)]
+#[derive(Debug)]
 struct GraphRef<T> {
     rel_pos: usize,
     _phantom: PhantomData<*const T>,
-}
-
-mod temp {
-    use super::GraphRef;
-    use super::LiveGraphRef;
-    use graph_derive::make_graph;
-
-    make_graph! {
-        enum IntExpr {
-            Int(i64),
-            Add(IntExpr, IntExpr),
-            Sub(IntExpr, IntExpr),
-        }
-
-        enum FloatExpr {
-            Float(f64),
-            Add(FloatExpr, FloatExpr),
-            Sub(FloatExpr, FloatExpr),
-        }
-
-        enum BoolExpr {
-            Bool(bool),
-            IntEqual(IntExpr, IntExpr),
-            FloatEqual(FloatExpr, FloatExpr),
-            And(BoolExpr, BoolExpr),
-            Or(BoolExpr, BoolExpr),
-        }
-    }
-}
-
-enum IntExpr {
-    Int(i64),
-    Add(GraphRef<IntExpr>, GraphRef<IntExpr>),
-    Sub(GraphRef<IntExpr>, GraphRef<IntExpr>),
-}
-enum FloatExpr {
-    Float(f64),
-    Add(GraphRef<FloatExpr>, GraphRef<FloatExpr>),
-    Sub(GraphRef<FloatExpr>, GraphRef<FloatExpr>),
-}
-enum BoolExpr {
-    Bool(bool),
-    IntEqual(GraphRef<IntExpr>, GraphRef<IntExpr>),
-    FloatEqual(GraphRef<FloatExpr>, GraphRef<FloatExpr>),
-    And(GraphRef<BoolExpr>, GraphRef<BoolExpr>),
-    Or(GraphRef<BoolExpr>, GraphRef<BoolExpr>),
 }
 
 impl<T> From<usize> for GraphRef<T> {
@@ -64,61 +19,38 @@ impl<T> From<usize> for GraphRef<T> {
     }
 }
 
+use graph_derive::make_graph;
+
+make_graph! {
+    #[derive(Debug)]
+    enum IntExpr {
+        Int(i64),
+        Add(IntExpr, IntExpr),
+        Sub(IntExpr, IntExpr),
+    }
+
+    #[derive(Debug)]
+    enum FloatExpr {
+        Float(f64),
+        Add(FloatExpr, FloatExpr),
+        Sub(FloatExpr, FloatExpr),
+    }
+
+    #[derive(Debug)]
+    enum BoolExpr {
+        Bool(bool),
+        IntEqual(IntExpr, IntExpr),
+        FloatEqual(FloatExpr, FloatExpr),
+        And(BoolExpr, BoolExpr),
+        Or(BoolExpr, BoolExpr),
+    }
+}
+
 #[allow(dead_code)]
 enum Expr {
     IntExpr(IntExpr),
     FloatExpr(FloatExpr),
     BoolExpr(BoolExpr),
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-enum LiveIntExpr<'a> {
-    Int(i64),
-    Add(
-        LiveGraphRef<'a, LiveIntExpr<'a>>,
-        LiveGraphRef<'a, LiveIntExpr<'a>>,
-    ),
-    Sub(
-        LiveGraphRef<'a, LiveIntExpr<'a>>,
-        LiveGraphRef<'a, LiveIntExpr<'a>>,
-    ),
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-enum LiveFloatExpr<'a> {
-    Float(f64),
-    Add(
-        LiveGraphRef<'a, LiveFloatExpr<'a>>,
-        LiveGraphRef<'a, LiveFloatExpr<'a>>,
-    ),
-    Sub(
-        LiveGraphRef<'a, LiveFloatExpr<'a>>,
-        LiveGraphRef<'a, LiveFloatExpr<'a>>,
-    ),
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-enum LiveBoolExpr<'a> {
-    Bool(bool),
-    IntEqual(
-        LiveGraphRef<'a, LiveIntExpr<'a>>,
-        LiveGraphRef<'a, LiveIntExpr<'a>>,
-    ),
-    FloatEqual(
-        LiveGraphRef<'a, LiveFloatExpr<'a>>,
-        LiveGraphRef<'a, LiveFloatExpr<'a>>,
-    ),
-    And(
-        LiveGraphRef<'a, LiveBoolExpr<'a>>,
-        LiveGraphRef<'a, LiveBoolExpr<'a>>,
-    ),
-    Or(
-        LiveGraphRef<'a, LiveBoolExpr<'a>>,
-        LiveGraphRef<'a, LiveBoolExpr<'a>>,
-    ),
 }
 
 #[allow(dead_code)]

@@ -4,7 +4,9 @@ use std::fmt::Display;
 use std::iter::Peekable;
 
 #[allow(unused_imports)]
-use proc_macro::{Delimiter, Group, Ident, Punct, Spacing, Span, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Group, Ident, Punct, Spacing, Span, TokenStream, TokenTree};
+
+use quote::{format_ident, quote, ToTokens};
 
 use itertools::Itertools;
 
@@ -393,7 +395,9 @@ impl Into<TokenStream> for EnumDef {
         let attr: TokenStream = self
             .attributes
             .into_iter()
-            .map(|attr| -> TokenStream { attr.into() })
+            .map(|attr| -> TokenStream {
+                quote! { #attr }
+            })
             .collect();
         let body: TokenTree = Group::new(
             Delimiter::Brace,
@@ -410,6 +414,20 @@ impl Into<TokenStream> for EnumDef {
     }
 }
 
+impl ToTokens for EnumDef {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let attr = &self.attributes;
+        let variants = &self.variants;
+        let name = &self.enum_type;
+        tokens.extend(quote! {
+            #(#attr)*
+            enum #name {
+                #(#variants)*
+            }
+        });
+    }
+}
+
 impl Into<TokenStream> for Attribute {
     fn into(self) -> TokenStream {
         let octothorpe = Punct::new('#', Spacing::Alone);
@@ -418,12 +436,28 @@ impl Into<TokenStream> for Attribute {
     }
 }
 
+impl ToTokens for Attribute {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let attr = &self.attr;
+        tokens.extend(quote! { ##attr });
+    }
+}
+
 impl Into<TokenStream> for Generic {
     fn into(self) -> TokenStream {
         match self {
             Generic::Type(kind) => kind.into(),
-            Generic::Lifetime(lifetime) => lifetime.into(),
+            Generic::Lifetime(lifetime) => quote! {#lifetime},
         }
+    }
+}
+
+impl ToTokens for Generic {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        tokens.extend(match self {
+            Generic::Type(kind) => quote! {#kind},
+            Generic::Lifetime(lifetime) => quote! {#lifetime},
+        });
     }
 }
 
@@ -432,6 +466,15 @@ impl Into<TokenStream> for Lifetime {
         let tokens: Vec<TokenTree> =
             vec![Punct::new('\'', Spacing::Joint).into(), self.name.into()];
         tokens.into_iter().collect()
+    }
+}
+
+impl ToTokens for Lifetime {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let lifetime = syn::Lifetime::new(&format!("'{}", self.name), self.name.span());
+        tokens.extend(quote! {
+             #lifetime
+        });
     }
 }
 
@@ -465,12 +508,29 @@ impl Into<TokenStream> for Type {
     }
 }
 
+impl ToTokens for Type {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let name = &self.name;
+        let generics = &self.generics;
+        tokens.extend(quote! {
+            #name < #(#generics),* >
+        });
+    }
+}
+
 impl Into<TokenStream> for EnumVariant {
     fn into(self) -> TokenStream {
-        let name: TokenTree = self.name.into();
-        let comma: TokenTree = Punct::new(',', Spacing::Alone).into();
-        let streams: Vec<TokenStream> = vec![name.into(), self.params.into(), comma.into()];
-        streams.into_iter().collect()
+        let name = self.name;
+        let params = self.params;
+        quote! { #name #params, }
+    }
+}
+
+impl ToTokens for EnumVariant {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let name = &self.name;
+        let params = &self.params;
+        tokens.extend(quote! { #name #params, });
     }
 }
 
@@ -482,32 +542,29 @@ impl Into<TokenStream> for EnumVariantParams {
         #[allow(unstable_name_collisions)]
         match self {
             EnumVariantParams::None => TokenStream::new(),
-            EnumVariantParams::Tuple(types) => {
-                let body = types
-                    .into_iter()
-                    .map(|t| -> TokenStream { t.into() })
-                    .intersperse({
-                        let tt: TokenTree = Punct::new(',', Spacing::Alone).into();
-                        tt.into()
-                    })
-                    .collect();
-                let group: TokenTree = Group::new(Delimiter::Parenthesis, body).into();
-                group.into()
-            }
+            EnumVariantParams::Tuple(types) => quote! { ( #(#types),* ) },
             EnumVariantParams::Struct(items) => {
-                let body = items
+                let body: TokenStream = items
                     .into_iter()
-                    .map(|(name, class)| -> TokenStream {
-                        let name: TokenTree = name.into();
-                        let colon: TokenTree = Punct::new(':', Spacing::Alone).into();
-                        let comma: TokenTree = Punct::new(',', Spacing::Alone).into();
-                        let streams: Vec<TokenStream> =
-                            vec![name.into(), colon.into(), class.into(), comma.into()];
-                        streams.into_iter().collect()
-                    })
+                    .map(|(name, class)| quote! { #name: #class, })
                     .collect();
-                let group: TokenTree = Group::new(Delimiter::Brace, body).into();
-                group.into()
+                quote! { { #body } }
+            }
+        }
+    }
+}
+
+impl ToTokens for EnumVariantParams {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        match self {
+            EnumVariantParams::None => {}
+            EnumVariantParams::Tuple(types) => tokens.extend(quote! { ( #(#types),* ) }),
+            EnumVariantParams::Struct(items) => {
+                let body: TokenStream = items
+                    .into_iter()
+                    .map(|(name, class)| quote! { #name: #class, })
+                    .collect();
+                tokens.extend(quote! { { #body } });
             }
         }
     }
@@ -516,7 +573,7 @@ impl Into<TokenStream> for EnumVariantParams {
 fn with_graph_ref(enum_def: EnumDef, recursive_enums: &HashSet<String>) -> EnumDef {
     let update_type = |t: &Type| -> Type {
         if recursive_enums.contains(&format!("{}", t.name)) {
-            let name = Ident::new("GraphRef", Span::call_site());
+            let name = format_ident!("GraphRef");
             Type {
                 name,
                 generics: vec![t.clone().into()],
@@ -537,8 +594,8 @@ fn with_live_graph_ref(enum_def: EnumDef, recursive_enums: &HashSet<String>) -> 
 
     let update_type = |t: &Type| -> Type {
         if recursive_enums.contains(&format!("{}", t.name)) {
-            let ref_name = Ident::new("LiveGraphRef", Span::call_site());
-            let inner_name = Ident::new(&format!("Live{}", t.name), Span::call_site());
+            let ref_name = format_ident!("LiveGraphRef");
+            let inner_name = format_ident!("Live{}", t.name);
             let inner_type = Type {
                 name: inner_name,
                 generics: vec![lifetime.clone()],
@@ -574,7 +631,9 @@ fn with_live_graph_ref(enum_def: EnumDef, recursive_enums: &HashSet<String>) -> 
 }
 
 #[proc_macro]
-pub fn make_graph(tokens: TokenStream) -> TokenStream {
+pub fn make_graph(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let tokens: TokenStream = tokens.into();
+
     let mut enum_iter = {
         let mut iter = tokens.clone().into_iter().peekable();
         std::iter::from_fn(move || iter.next_enum())
@@ -600,10 +659,8 @@ pub fn make_graph(tokens: TokenStream) -> TokenStream {
             name: Ident::new("a", Span::call_site()),
         }
         .into();
-        let name = Ident::new(
-            &format!("Live{}", main_enum.enum_type.name),
-            Span::call_site(),
-        );
+
+        let name = format_ident!("Live{}", main_enum.enum_type.name);
         let variants = enum_definitions
             .iter()
             .map(|e| {
@@ -636,26 +693,23 @@ pub fn make_graph(tokens: TokenStream) -> TokenStream {
         .map(|e| format!("{}", e.enum_type.name))
         .collect();
 
-    let graph_ref_enums: TokenStream = enum_definitions
+    let graph_ref_enums: Vec<_> = enum_definitions
         .iter()
         .cloned()
         .map(|e| with_graph_ref(e, &recursive_enums))
-        .map(|e| -> TokenStream { e.into() })
         .collect();
 
-    let live_graph_ref_enums: TokenStream = enum_definitions
+    let live_graph_ref_enums: Vec<_> = enum_definitions
         .iter()
         .cloned()
         .map(|e| with_live_graph_ref(e, &recursive_enums))
-        .map(|e| -> TokenStream { e.into() })
         .collect();
 
-    vec![
-        main_enum_storage.into(),
-        main_enum_live.into(),
-        graph_ref_enums,
-        live_graph_ref_enums,
-    ]
-    .into_iter()
-    .collect()
+    quote! {
+        #main_enum_storage
+        #main_enum_live
+        #(#graph_ref_enums)*
+        #(#live_graph_ref_enums)*
+    }
+    .into()
 }

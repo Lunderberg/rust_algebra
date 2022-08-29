@@ -11,4 +11,6 @@ path = "src/graph_derive.rs"
 
 [dependencies]
 itertools = "*"
+proc-macro2 = "*"
 quote = "*"
+syn = "*"

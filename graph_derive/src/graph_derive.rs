@@ -7,6 +7,8 @@ use std::iter::Peekable;
 use proc_macro2::{Delimiter, Group, Ident, Punct, Spacing, Span, TokenStream, TokenTree};
 
 use quote::{format_ident, quote, ToTokens};
+use syn::parse::Parse;
+use syn::parse_macro_input;
 
 use itertools::Itertools;
 
@@ -570,6 +572,7 @@ impl ToTokens for EnumVariantParams {
     }
 }
 
+#[allow(dead_code)]
 fn with_graph_ref(enum_def: EnumDef, recursive_enums: &HashSet<String>) -> EnumDef {
     let update_type = |t: &Type| -> Type {
         if recursive_enums.contains(&format!("{}", t.name)) {
@@ -586,6 +589,7 @@ fn with_graph_ref(enum_def: EnumDef, recursive_enums: &HashSet<String>) -> EnumD
     enum_def.map_inner_types(update_type)
 }
 
+#[allow(dead_code)]
 fn with_live_graph_ref(enum_def: EnumDef, recursive_enums: &HashSet<String>) -> EnumDef {
     let lifetime: Generic = Lifetime {
         name: Ident::new("a", Span::call_site()),
@@ -630,86 +634,27 @@ fn with_live_graph_ref(enum_def: EnumDef, recursive_enums: &HashSet<String>) -> 
     }
 }
 
-#[proc_macro]
-pub fn make_graph(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let tokens: TokenStream = tokens.into();
+struct MyMacroInput {
+    _enums: Vec<syn::ItemEnum>,
+}
 
-    let mut enum_iter = {
-        let mut iter = tokens.clone().into_iter().peekable();
-        std::iter::from_fn(move || iter.next_enum())
-    };
-    let main_enum = enum_iter.next().expect("No enums found");
-    let enum_definitions: Vec<_> = enum_iter.collect();
-
-    let main_enum_storage = main_enum.with_variants(
-        enum_definitions
-            .iter()
-            .map(|e| {
-                let kind = e.enum_type.clone();
-                EnumVariant {
-                    params: EnumVariantParams::Tuple(vec![kind.clone()]),
-                    name: kind.name,
-                }
-            })
-            .collect(),
-    );
-
-    let main_enum_live = {
-        let lifetime: Generic = Lifetime {
-            name: Ident::new("a", Span::call_site()),
-        }
-        .into();
-
-        let name = format_ident!("Live{}", main_enum.enum_type.name);
-        let variants = enum_definitions
-            .iter()
-            .map(|e| {
-                let live_name = Ident::new(&format!("Live{}", e.enum_type.name), Span::call_site());
-                let generics = std::iter::once(lifetime.clone())
-                    .chain(e.enum_type.generics.iter().cloned())
-                    .collect();
-                let live_type = Type {
-                    name: live_name,
-                    generics,
-                };
-                EnumVariant {
-                    name: e.enum_type.name.clone(),
-                    params: EnumVariantParams::Tuple(vec![live_type.into()]),
-                }
-            })
-            .collect();
-        EnumDef {
-            enum_type: Type {
-                name,
-                generics: vec![lifetime],
-            },
-            variants,
-            attributes: main_enum.attributes.clone(),
-        }
-    };
-
-    let recursive_enums = enum_definitions
-        .iter()
-        .map(|e| format!("{}", e.enum_type.name))
-        .collect();
-
-    let graph_ref_enums: Vec<_> = enum_definitions
-        .iter()
-        .cloned()
-        .map(|e| with_graph_ref(e, &recursive_enums))
-        .collect();
-
-    let live_graph_ref_enums: Vec<_> = enum_definitions
-        .iter()
-        .cloned()
-        .map(|e| with_live_graph_ref(e, &recursive_enums))
-        .collect();
-
-    quote! {
-        #main_enum_storage
-        #main_enum_live
-        #(#graph_ref_enums)*
-        #(#live_graph_ref_enums)*
+impl Parse for MyMacroInput {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let enums = std::iter::from_fn(|| {
+            if input.is_empty() {
+                None
+            } else {
+                Some(input.parse())
+            }
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
+        Ok(Self { _enums: enums })
     }
-    .into()
+}
+
+#[proc_macro]
+pub fn make_graph(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let _input = parse_macro_input!(input as MyMacroInput);
+
+    "".parse().unwrap()
 }

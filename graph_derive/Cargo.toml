@@ -13,4 +13,5 @@ path = "src/graph_derive.rs"
 itertools = "*"
 proc-macro2 = "*"
 quote = "*"
-syn = "*"
+
+syn = {version = "*", features = ["full"]}

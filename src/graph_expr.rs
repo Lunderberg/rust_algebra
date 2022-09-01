@@ -1,38 +1,44 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
-use graph_derive::make_graph;
-
-use crate::graph::{GraphRef, LiveGraphRef, Subgraph};
+use crate::graph::{GraphRef, LiveGraphRef, NodeType, Subgraph};
 use crate::Error;
 
-make_graph! {
-    // First enum must have no items, becomes the template for the
-    // storage enum.
-    #[derive(Debug)]
-    enum Expr {}
+mod temp {
+    use crate::graph::{GraphRef, LiveGraphRef, NodeType, Subgraph};
+    use graph_derive::make_graph;
 
-    #[derive(Debug)]
-    enum IntExpr {
-        Int(i64),
-        Add(IntExpr, IntExpr),
-        Sub(IntExpr, IntExpr),
-    }
+    make_graph! {
+        // First one is special, defines the name of all the others.
+        // Maybe replace in the future, special handling for
+        // variants that reference just a single-reference type?
+        //
+        // Better idea,
+        enum Expr {
+            IntExpr(IntExpr),
+            FloatExpr(FloatExpr),
+            BoolExpr(BoolExpr),
+        }
 
-    #[derive(Debug)]
-    enum FloatExpr {
-        Float(f64),
-        Add(FloatExpr, FloatExpr),
-        Sub(FloatExpr, FloatExpr),
-    }
+        enum IntExpr {
+            Int(i64),
+            Add(IntExpr, IntExpr),
+            Sub(IntExpr, IntExpr),
+        }
 
-    #[derive(Debug)]
-    enum BoolExpr {
-        Bool(bool),
-        IntEqual(IntExpr, IntExpr),
-        FloatEqual(FloatExpr, FloatExpr),
-        And(BoolExpr, BoolExpr),
-        Or(BoolExpr, BoolExpr),
+        enum FloatExpr {
+            Float(f64),
+            Add(FloatExpr, FloatExpr),
+            Sub(FloatExpr, FloatExpr),
+        }
+
+        enum BoolExpr {
+            Bool(bool),
+            IntEqual(IntExpr, IntExpr),
+            FloatEqual(FloatExpr, FloatExpr),
+            And(BoolExpr, BoolExpr),
+            Or(BoolExpr, BoolExpr),
+        }
     }
 }
 
@@ -130,7 +136,7 @@ impl Expr {
     }
 }
 
-impl<'a, 'b> crate::NodeType<'a, 'b, Expr> for Expr
+impl<'a, 'b> NodeType<'a, 'b, Expr> for Expr
 where
     'a: 'b,
 {
@@ -153,7 +159,7 @@ where
     }
 }
 
-impl<'a, 'b> crate::NodeType<'a, 'b, Expr> for IntExpr
+impl<'a, 'b> NodeType<'a, 'b, Expr> for IntExpr
 where
     'a: 'b,
 {
@@ -185,7 +191,7 @@ where
     }
 }
 
-impl<'a, 'b> crate::NodeType<'a, 'b, Expr> for FloatExpr
+impl<'a, 'b> NodeType<'a, 'b, Expr> for FloatExpr
 where
     'a: 'b,
 {
@@ -217,7 +223,7 @@ where
     }
 }
 
-impl<'a, 'b> crate::NodeType<'a, 'b, Expr> for BoolExpr
+impl<'a, 'b> NodeType<'a, 'b, Expr> for BoolExpr
 where
     'a: 'b,
 {

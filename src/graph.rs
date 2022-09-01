@@ -3,24 +3,20 @@ use std::marker::PhantomData;
 
 use crate::{Error, Result};
 
-#[allow(dead_code)]
 pub struct Graph<NodeBase> {
     items: Vec<NodeBase>,
 }
 
-#[allow(dead_code)]
 pub struct Subgraph<'a, NodeBase> {
     items: &'a [NodeBase],
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct GraphRef<NodeType> {
     rel_pos: usize,
     _node: PhantomData<*const NodeType>,
 }
 
-#[allow(dead_code)]
 pub struct LiveGraphRef<'a, NodeBase, NodeType> {
     subgraph: Subgraph<'a, NodeBase>,
     graph_ref: GraphRef<NodeType>,

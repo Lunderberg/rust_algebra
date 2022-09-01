@@ -130,24 +130,43 @@ impl Expr {
     }
 }
 
-impl Expr {
-    fn to_live<'a, 'b>(&self, subgraph: Subgraph<'a, Expr>) -> LiveExpr<'b>
-    where
-        'a: 'b,
-    {
+impl<'a, 'b> crate::NodeType<'a, 'b, Expr> for Expr
+where
+    'a: 'b,
+{
+    type LiveType = LiveExpr<'b>;
+
+    fn from_base(base: &Expr) -> Option<&Self> {
+        Some(base)
+    }
+
+    fn to_live_type(&self, subgraph: Subgraph<'a, Expr>) -> Self::LiveType {
         match self {
-            Expr::IntExpr(e) => LiveExpr::IntExpr(e.to_live(subgraph)),
-            Expr::FloatExpr(e) => LiveExpr::FloatExpr(e.to_live(subgraph)),
-            Expr::BoolExpr(e) => LiveExpr::BoolExpr(e.to_live(subgraph)),
+            Expr::IntExpr(e) => LiveExpr::IntExpr(e.to_live_type(subgraph)),
+            Expr::FloatExpr(e) => LiveExpr::FloatExpr(e.to_live_type(subgraph)),
+            Expr::BoolExpr(e) => LiveExpr::BoolExpr(e.to_live_type(subgraph)),
         }
+    }
+
+    fn class_type() -> &'static str {
+        "Expr"
     }
 }
 
-impl IntExpr {
-    fn to_live<'a, 'b, Base>(&self, subgraph: Subgraph<'a, Base>) -> LiveIntExpr<'b, Base>
-    where
-        'a: 'b,
-    {
+impl<'a, 'b> crate::NodeType<'a, 'b, Expr> for IntExpr
+where
+    'a: 'b,
+{
+    type LiveType = LiveIntExpr<'b, Expr>;
+
+    fn from_base(base: &Expr) -> Option<&Self> {
+        match base {
+            Expr::IntExpr(e) => Some(e),
+            _ => None,
+        }
+    }
+
+    fn to_live_type(&self, subgraph: Subgraph<'a, Expr>) -> Self::LiveType {
         match self {
             IntExpr::Int(i) => LiveIntExpr::Int(*i),
             IntExpr::Add(a, b) => LiveIntExpr::Add(
@@ -160,13 +179,26 @@ impl IntExpr {
             ),
         }
     }
+
+    fn class_type() -> &'static str {
+        "IntExpr"
+    }
 }
 
-impl FloatExpr {
-    fn to_live<'a, 'b, Base>(&self, subgraph: Subgraph<'a, Base>) -> LiveFloatExpr<'b, Base>
-    where
-        'a: 'b,
-    {
+impl<'a, 'b> crate::NodeType<'a, 'b, Expr> for FloatExpr
+where
+    'a: 'b,
+{
+    type LiveType = LiveFloatExpr<'b, Expr>;
+
+    fn from_base(base: &Expr) -> Option<&Self> {
+        match base {
+            Expr::FloatExpr(e) => Some(e),
+            _ => None,
+        }
+    }
+
+    fn to_live_type(&self, subgraph: Subgraph<'a, Expr>) -> Self::LiveType {
         match self {
             FloatExpr::Float(f) => LiveFloatExpr::Float(*f),
             FloatExpr::Add(a, b) => LiveFloatExpr::Add(
@@ -179,13 +211,26 @@ impl FloatExpr {
             ),
         }
     }
+
+    fn class_type() -> &'static str {
+        "FloatExpr"
+    }
 }
 
-impl BoolExpr {
-    fn to_live<'a, 'b, Base>(&self, subgraph: Subgraph<'a, Base>) -> LiveBoolExpr<'b, Base>
-    where
-        'a: 'b,
-    {
+impl<'a, 'b> crate::NodeType<'a, 'b, Expr> for BoolExpr
+where
+    'a: 'b,
+{
+    type LiveType = LiveBoolExpr<'b, Expr>;
+
+    fn from_base(base: &Expr) -> Option<&Self> {
+        match base {
+            Expr::BoolExpr(e) => Some(e),
+            _ => None,
+        }
+    }
+
+    fn to_live_type(&self, subgraph: Subgraph<'a, Expr>) -> Self::LiveType {
         match self {
             BoolExpr::Bool(b) => LiveBoolExpr::Bool(*b),
             BoolExpr::IntEqual(a, b) => LiveBoolExpr::IntEqual(
@@ -206,206 +251,9 @@ impl BoolExpr {
             ),
         }
     }
-}
 
-impl<'a, 'b> TryFrom<&'a Expr> for &'b IntExpr
-where
-    'a: 'b,
-{
-    type Error = Error;
-
-    fn try_from(expr: &'a Expr) -> Result<Self, Self::Error> {
-        match expr {
-            Expr::IntExpr(e) => Ok(e),
-            node => Err(Error::IncorrectType {
-                expected: "IntExpr".to_string(),
-                actual: node.type_string().to_string(),
-            }),
-        }
-    }
-}
-
-impl<'a, 'b> TryFrom<&'a Expr> for &'b FloatExpr
-where
-    'a: 'b,
-{
-    type Error = Error;
-
-    fn try_from(expr: &'a Expr) -> Result<Self, Self::Error> {
-        match expr {
-            Expr::FloatExpr(e) => Ok(e),
-            node => Err(Error::IncorrectType {
-                expected: "FloatExpr".to_string(),
-                actual: node.type_string().to_string(),
-            }),
-        }
-    }
-}
-
-impl<'a, 'b> TryFrom<&'a Expr> for &'b BoolExpr
-where
-    'a: 'b,
-{
-    type Error = Error;
-
-    fn try_from(expr: &'a Expr) -> Result<Self, Self::Error> {
-        match expr {
-            Expr::BoolExpr(e) => Ok(e),
-            node => Err(Error::IncorrectType {
-                expected: "BoolExpr".to_string(),
-                actual: node.type_string().to_string(),
-            }),
-        }
-    }
-}
-
-impl<'a> From<Subgraph<'a, Expr>> for LiveExpr<'a> {
-    fn from(subgraph: Subgraph<'a, Expr>) -> Self {
-        subgraph.node().to_live(subgraph.clone())
-    }
-}
-
-impl<'a> From<Subgraph<'a, IntExpr>> for LiveIntExpr<'a, IntExpr> {
-    fn from(subgraph: Subgraph<'a, IntExpr>) -> Self {
-        subgraph.node().to_live(subgraph.clone())
-    }
-}
-
-impl<'a> From<Subgraph<'a, FloatExpr>> for LiveFloatExpr<'a, FloatExpr> {
-    fn from(subgraph: Subgraph<'a, FloatExpr>) -> Self {
-        subgraph.node().to_live(subgraph.clone())
-    }
-}
-
-// This implementation shouldn't be made, because a BoolExpr can
-// depend on IntExpr/FloatExpr nodes.  Therefore, whatever the
-// storagetype must be able to represent those as well.  Proc macro
-// will need to track the type dependency graph in order to determine
-// the allowed backing type(s) for each node type.
-//
-// impl<'a> From<Subgraph<'a, BoolExpr>> for LiveBoolExpr<'a, BoolExpr> {
-//     fn from(subgraph: Subgraph<'a, BoolExpr>) -> Self {
-//         let node: &BoolExpr = subgraph.node();
-//         node.to_live(subgraph.clone())
-//     }
-// }
-
-// impl<'a, NodeBase> TryFrom<Subgraph<'a, NodeBase>> for LiveIntExpr<'a, NodeBase>
-// where
-//     NodeBase: TryInto<IntExpr>,
-// {
-//     type Error = Error;
-
-//     fn try_from(subgraph: Subgraph<'a, NodeBase>) -> Result<Self, Self::Error> {
-//         subgraph.node().try_into()?.to_live(subgraph.clone())
-//     }
-// }
-
-impl<'a> TryFrom<Subgraph<'a, Expr>> for LiveIntExpr<'a, Expr> {
-    type Error = Error;
-
-    fn try_from(subgraph: Subgraph<'a, Expr>) -> Result<Self, Self::Error> {
-        let expr: &IntExpr = subgraph.node().try_into()?;
-        Ok(expr.to_live(subgraph.clone()))
-    }
-}
-
-impl<'a> TryFrom<Subgraph<'a, Expr>> for LiveFloatExpr<'a, Expr> {
-    type Error = Error;
-
-    fn try_from(subgraph: Subgraph<'a, Expr>) -> Result<Self, Self::Error> {
-        let expr: &FloatExpr = subgraph.node().try_into()?;
-        Ok(expr.to_live(subgraph.clone()))
-    }
-}
-
-impl<'a> TryFrom<Subgraph<'a, Expr>> for LiveBoolExpr<'a, Expr> {
-    type Error = Error;
-
-    fn try_from(subgraph: Subgraph<'a, Expr>) -> Result<Self, Self::Error> {
-        let expr: &BoolExpr = subgraph.node().try_into()?;
-        Ok(expr.to_live(subgraph.clone()))
-    }
-}
-
-// The borrow methods can't be replaced with Deref because we need to
-// return a LiveGraphRef value, which doesn't already exist.  It also
-// can't be done with a trait, because the return type would need a
-// generic associated type in order to have the correct lifetime.
-//
-// May be able to have cleaner usage with std::ops::Try
-// implementation.
-//
-// GAT tracking issue: https://github.com/rust-lang/rust/issues/44265
-// Try-trait tracking issue: https://github.com/rust-lang/rust/issues/84277
-
-impl<'a> LiveGraphRef<'a, Expr, Expr> {
-    #[allow(dead_code)]
-    fn borrow<'b>(&self) -> Result<LiveExpr<'b>, Error>
-    where
-        'a: 'b,
-    {
-        Ok(self.get_subgraph()?.into())
-    }
-}
-
-impl<'a> LiveGraphRef<'a, IntExpr, IntExpr> {
-    #[allow(dead_code)]
-    fn borrow<'b>(&self) -> Result<LiveIntExpr<'b, IntExpr>, Error>
-    where
-        'a: 'b,
-    {
-        Ok(self.get_subgraph()?.into())
-    }
-}
-
-impl<'a> LiveGraphRef<'a, FloatExpr, FloatExpr> {
-    #[allow(dead_code)]
-    fn borrow<'b>(&self) -> Result<LiveFloatExpr<'b, FloatExpr>, Error>
-    where
-        'a: 'b,
-    {
-        Ok(self.get_subgraph()?.into())
-    }
-}
-
-// impl<'a> LiveGraphRef<'a, BoolExpr, BoolExpr> {
-//     #[allow(dead_code)]
-//     fn borrow<'b>(&self) -> Result<LiveBoolExpr<'b, BoolExpr>, Error>
-//     where
-//         'a: 'b,
-//     {
-//         Ok(self.get_subgraph()?.into())
-//     }
-// }
-
-impl<'a> LiveGraphRef<'a, Expr, IntExpr> {
-    #[allow(dead_code)]
-    fn borrow<'b>(&self) -> Result<LiveIntExpr<'b, Expr>, Error>
-    where
-        'a: 'b,
-    {
-        self.get_subgraph()?.try_into()
-    }
-}
-
-impl<'a> LiveGraphRef<'a, Expr, FloatExpr> {
-    #[allow(dead_code)]
-    fn borrow<'b>(&self) -> Result<LiveFloatExpr<'b, Expr>, Error>
-    where
-        'a: 'b,
-    {
-        self.get_subgraph()?.try_into()
-    }
-}
-
-impl<'a> LiveGraphRef<'a, Expr, BoolExpr> {
-    #[allow(dead_code)]
-    fn borrow<'b>(&self) -> Result<LiveBoolExpr<'b, Expr>, Error>
-    where
-        'a: 'b,
-    {
-        self.get_subgraph()?.try_into()
+    fn class_type() -> &'static str {
+        "BoolExpr"
     }
 }
 

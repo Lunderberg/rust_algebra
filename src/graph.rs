@@ -26,6 +26,91 @@ pub struct LiveGraphRef<'a, NodeBase, NodeType> {
     graph_ref: GraphRef<NodeType>,
 }
 
+pub trait NodeType<'a: 'b, 'b, BaseType> {
+    type LiveType;
+    fn from_base(base: &BaseType) -> Option<&Self>;
+    fn to_live_type(&self, subgraph: Subgraph<'a, BaseType>) -> Self::LiveType;
+    fn class_type() -> &'static str;
+}
+
+impl<'a, Base> Subgraph<'a, Base> {
+    pub fn node(&self) -> &Base {
+        self.items.last().unwrap()
+    }
+}
+
+impl<NodeBase> Graph<NodeBase> {
+    #[allow(dead_code)]
+    pub fn new(items: Vec<NodeBase>) -> Result<Self> {
+        (!items.is_empty())
+            .then(|| Self { items })
+            .ok_or(Error::EmptyExpression)
+    }
+
+    #[allow(dead_code)]
+    pub fn root<'a, 'b>(&'a self) -> LiveGraphRef<'b, NodeBase, NodeBase>
+    where
+        'a: 'b,
+    {
+        LiveGraphRef {
+            subgraph: self.into(),
+            graph_ref: 0.into(),
+        }
+    }
+}
+
+impl<'a, NodeBase, NodeType> LiveGraphRef<'a, NodeBase, NodeType> {
+    pub fn new<'b>(graph_ref: GraphRef<NodeType>, subgraph: Subgraph<'b, NodeBase>) -> Self
+    where
+        'b: 'a,
+    {
+        Self {
+            graph_ref,
+            subgraph,
+        }
+    }
+
+    pub fn get_subgraph<'b>(&self) -> Result<Subgraph<'b, NodeBase>>
+    where
+        'a: 'b,
+    {
+        let index = self
+            .subgraph
+            .items
+            .len()
+            .checked_sub(self.graph_ref.rel_pos)
+            .ok_or(Error::InvalidReference {
+                rel_pos: self.graph_ref.rel_pos,
+                subgraph_size: self.subgraph.items.len(),
+            })?;
+        let items = &self.subgraph.items[0..index];
+        Ok(Subgraph { items })
+    }
+}
+
+impl<'a, BaseType, T> LiveGraphRef<'a, BaseType, T> {
+    pub fn borrow<'b>(&self) -> Result<T::LiveType>
+    where
+        T: NodeType<'a, 'b, BaseType>,
+    {
+        let subgraph = self.get_subgraph()?;
+        let node_base: &BaseType = subgraph.node();
+        let node: &T = NodeType::from_base(node_base).ok_or_else(|| Error::IncorrectType {
+            expected: T::class_type().to_string(),
+            actual: "???".to_string(),
+        })?;
+        Ok(node.to_live_type(subgraph.clone()))
+    }
+}
+
+impl<'a, NodeBase, LiveItem> Debug for LiveGraphRef<'a, NodeBase, LiveItem> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LiveGraphRef")
+            .field("rel_pos", &self.graph_ref.rel_pos)
+            .finish()
+    }
+}
+
 impl<NodeType> Clone for GraphRef<NodeType> {
     fn clone(&self) -> Self {
         Self {
@@ -60,68 +145,5 @@ where
 {
     fn from(g: &'a Graph<NodeBase>) -> Self {
         Self { items: &g.items }
-    }
-}
-
-impl<'a, Base> Subgraph<'a, Base> {
-    pub fn node(&self) -> &Base {
-        self.items.last().unwrap()
-    }
-}
-
-impl<NodeBase> Graph<NodeBase> {
-    #[allow(dead_code)]
-    pub fn new(items: Vec<NodeBase>) -> Result<Self> {
-        (!items.is_empty())
-            .then(|| Self { items })
-            .ok_or(Error::EmptyExpression)
-    }
-
-    #[allow(dead_code)]
-    pub fn root<'a, 'b>(&'a self) -> LiveGraphRef<'b, NodeBase, NodeBase>
-    where
-        'a: 'b,
-    {
-        LiveGraphRef {
-            subgraph: self.into(),
-            graph_ref: 0.into(),
-        }
-    }
-}
-
-impl<'a, NodeBase, LiveItem> Debug for LiveGraphRef<'a, NodeBase, LiveItem> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LiveGraphRef")
-            .field("rel_pos", &self.graph_ref.rel_pos)
-            .finish()
-    }
-}
-
-impl<'a, NodeBase, NodeType> LiveGraphRef<'a, NodeBase, NodeType> {
-    pub fn new<'b>(graph_ref: GraphRef<NodeType>, subgraph: Subgraph<'b, NodeBase>) -> Self
-    where
-        'b: 'a,
-    {
-        Self {
-            graph_ref,
-            subgraph,
-        }
-    }
-
-    pub fn get_subgraph<'b>(&self) -> Result<Subgraph<'b, NodeBase>>
-    where
-        'a: 'b,
-    {
-        let index = self
-            .subgraph
-            .items
-            .len()
-            .checked_sub(self.graph_ref.rel_pos)
-            .ok_or(Error::InvalidReference {
-                rel_pos: self.graph_ref.rel_pos,
-                subgraph_size: self.subgraph.items.len(),
-            })?;
-        let items = &self.subgraph.items[0..index];
-        Ok(Subgraph { items })
     }
 }

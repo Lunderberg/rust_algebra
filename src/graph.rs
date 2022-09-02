@@ -24,9 +24,9 @@ pub struct LiveGraphRef<'a, NodeBase, NodeType> {
 
 pub trait NodeType<'a: 'b, 'b, BaseType> {
     type LiveType;
+    const NAME: &'static str;
     fn from_base(base: &BaseType) -> Option<&Self>;
     fn to_live_type(&self, subgraph: Subgraph<'a, BaseType>) -> Self::LiveType;
-    fn class_type() -> &'static str;
 }
 
 impl<'a, Base> Subgraph<'a, Base> {
@@ -92,7 +92,7 @@ impl<'a, BaseType, T> LiveGraphRef<'a, BaseType, T> {
         let subgraph = self.get_subgraph()?;
         let node_base: &BaseType = subgraph.node();
         let node: &T = NodeType::from_base(node_base).ok_or_else(|| Error::IncorrectType {
-            expected: T::class_type().to_string(),
+            expected: T::NAME.to_string(),
             actual: "???".to_string(),
         })?;
         Ok(node.to_live_type(subgraph.clone()))

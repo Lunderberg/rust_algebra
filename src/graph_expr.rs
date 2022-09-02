@@ -13,7 +13,23 @@ mod temp {
         // Maybe replace in the future, special handling for
         // variants that reference just a single-reference type?
         //
-        // Better idea,
+        // Better idea: The macro should generate up to three structs
+        // for each item.
+        //
+        // (1): A {name} that is the user-facing object.  It
+        // represents a full expression, including the Vec<Item>
+        // storage.  The storage type is either itself, or another
+        // type that can hold all of the reachable types from itself.
+        // If no such storage type exists, should raise compile-time
+        // error.
+        //
+        // (2): A Storage{name} that is stored in the Vec<Item> node.
+        // This is the in-memory representation, which currently gets
+        // the unmodified name of the object.
+        //
+        // (3): A Live{name} that is used when iterating.  This has
+        // the same structure has the Storage{name}, but contains
+        // LiveGraphRef instead of GraphRef.
         enum Expr {
             IntExpr(IntExpr),
             FloatExpr(FloatExpr),
@@ -141,6 +157,7 @@ where
     'a: 'b,
 {
     type LiveType = LiveExpr<'b>;
+    const NAME: &'static str = "Expr";
 
     fn from_base(base: &Expr) -> Option<&Self> {
         Some(base)
@@ -153,10 +170,6 @@ where
             Expr::BoolExpr(e) => LiveExpr::BoolExpr(e.to_live_type(subgraph)),
         }
     }
-
-    fn class_type() -> &'static str {
-        "Expr"
-    }
 }
 
 impl<'a, 'b> NodeType<'a, 'b, Expr> for IntExpr
@@ -164,6 +177,7 @@ where
     'a: 'b,
 {
     type LiveType = LiveIntExpr<'b, Expr>;
+    const NAME: &'static str = "IntExpr";
 
     fn from_base(base: &Expr) -> Option<&Self> {
         match base {
@@ -185,10 +199,6 @@ where
             ),
         }
     }
-
-    fn class_type() -> &'static str {
-        "IntExpr"
-    }
 }
 
 impl<'a, 'b> NodeType<'a, 'b, Expr> for FloatExpr
@@ -196,6 +206,7 @@ where
     'a: 'b,
 {
     type LiveType = LiveFloatExpr<'b, Expr>;
+    const NAME: &'static str = "FloatExpr";
 
     fn from_base(base: &Expr) -> Option<&Self> {
         match base {
@@ -217,10 +228,6 @@ where
             ),
         }
     }
-
-    fn class_type() -> &'static str {
-        "FloatExpr"
-    }
 }
 
 impl<'a, 'b> NodeType<'a, 'b, Expr> for BoolExpr
@@ -228,6 +235,7 @@ where
     'a: 'b,
 {
     type LiveType = LiveBoolExpr<'b, Expr>;
+    const NAME: &'static str = "BoolExpr";
 
     fn from_base(base: &Expr) -> Option<&Self> {
         match base {
@@ -256,10 +264,6 @@ where
                 LiveGraphRef::new(*b, subgraph),
             ),
         }
-    }
-
-    fn class_type() -> &'static str {
-        "BoolExpr"
     }
 }
 

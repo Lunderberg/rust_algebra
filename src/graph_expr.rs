@@ -4,57 +4,57 @@
 use crate::graph::{GraphRef, LiveGraphRef, NodeType, Subgraph};
 use crate::Error;
 
+use graph_derive::recursive_graph;
+
+#[recursive_graph]
 mod temp {
     use crate::graph::{GraphRef, LiveGraphRef, NodeType, Subgraph};
-    use graph_derive::make_graph;
 
-    make_graph! {
-        // First one is special, defines the name of all the others.
-        // Maybe replace in the future, special handling for
-        // variants that reference just a single-reference type?
-        //
-        // Better idea: The macro should generate up to three structs
-        // for each item.
-        //
-        // (1): A {name} that is the user-facing object.  It
-        // represents a full expression, including the Vec<Item>
-        // storage.  The storage type is either itself, or another
-        // type that can hold all of the reachable types from itself.
-        // If no such storage type exists, should raise compile-time
-        // error.
-        //
-        // (2): A Storage{name} that is stored in the Vec<Item> node.
-        // This is the in-memory representation, which currently gets
-        // the unmodified name of the object.
-        //
-        // (3): A Live{name} that is used when iterating.  This has
-        // the same structure has the Storage{name}, but contains
-        // LiveGraphRef instead of GraphRef.
-        enum Expr {
-            IntExpr(IntExpr),
-            FloatExpr(FloatExpr),
-            BoolExpr(BoolExpr),
-        }
+    // First one is special, defines the name of all the others.
+    // Maybe replace in the future, special handling for
+    // variants that reference just a single-reference type?
+    //
+    // Better idea: The macro should generate up to three structs
+    // for each item.
+    //
+    // (1): A {name} that is the user-facing object.  It
+    // represents a full expression, including the Vec<Item>
+    // storage.  The storage type is either itself, or another
+    // type that can hold all of the reachable types from itself.
+    // If no such storage type exists, should raise compile-time
+    // error.
+    //
+    // (2): A Storage{name} that is stored in the Vec<Item> node.
+    // This is the in-memory representation, which currently gets
+    // the unmodified name of the object.
+    //
+    // (3): A Live{name} that is used when iterating.  This has
+    // the same structure has the Storage{name}, but contains
+    // LiveGraphRef instead of GraphRef.
+    enum Expr {
+        IntExpr(IntExpr),
+        FloatExpr(FloatExpr),
+        BoolExpr(BoolExpr),
+    }
 
-        enum IntExpr {
-            Int(i64),
-            Add(IntExpr, IntExpr),
-            Sub(IntExpr, IntExpr),
-        }
+    enum IntExpr {
+        Int(i64),
+        Add(IntExpr, IntExpr),
+        Sub(IntExpr, IntExpr),
+    }
 
-        enum FloatExpr {
-            Float(f64),
-            Add(FloatExpr, FloatExpr),
-            Sub(FloatExpr, FloatExpr),
-        }
+    enum FloatExpr {
+        Float(f64),
+        Add(FloatExpr, FloatExpr),
+        Sub(FloatExpr, FloatExpr),
+    }
 
-        enum BoolExpr {
-            Bool(bool),
-            IntEqual(IntExpr, IntExpr),
-            FloatEqual(FloatExpr, FloatExpr),
-            And(BoolExpr, BoolExpr),
-            Or(BoolExpr, BoolExpr),
-        }
+    enum BoolExpr {
+        Bool(bool),
+        IntEqual(IntExpr, IntExpr),
+        FloatEqual(FloatExpr, FloatExpr),
+        And(BoolExpr, BoolExpr),
+        Or(BoolExpr, BoolExpr),
     }
 }
 

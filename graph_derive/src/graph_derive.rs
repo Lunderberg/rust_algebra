@@ -3,30 +3,27 @@ use std::collections::HashSet;
 use proc_macro2::Span;
 
 use quote::{format_ident, quote};
-use syn::parse::Parse;
 use syn::parse_macro_input;
 
-struct MyMacroInput {
-    enums: Vec<syn::ItemEnum>,
-}
+use itertools::{Either, Itertools};
 
-impl Parse for MyMacroInput {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let enums = std::iter::from_fn(|| {
-            if input.is_empty() {
-                None
-            } else {
-                Some(input.parse())
-            }
-        })
-        .collect::<syn::Result<Vec<_>>>()?;
-        Ok(Self { enums })
-    }
-}
+#[proc_macro_attribute]
+pub fn recursive_graph(
+    _attr: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let orig: syn::ItemMod = parse_macro_input!(item as syn::ItemMod);
 
-#[proc_macro]
-pub fn make_graph(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let enums: Vec<syn::ItemEnum> = parse_macro_input!(input as MyMacroInput).enums;
+    let mod_name = orig.ident;
+    let (enums, other_items): (Vec<syn::ItemEnum>, Vec<syn::Item>) = orig
+        .content
+        .expect("Recursive graph module may not be empty")
+        .1
+        .into_iter()
+        .partition_map(|item| match item {
+            syn::Item::Enum(item_enum) => Either::Left(item_enum),
+            other => Either::Right(other),
+        });
 
     let enum_idents: HashSet<syn::Ident> = enums.iter().map(|e| e.ident.clone()).collect();
     let is_recursive_enum = |ty: &syn::Type| -> bool {
@@ -90,9 +87,12 @@ pub fn make_graph(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         .collect();
 
     quote! {
-        //#(#enums)*
-        #(#storage_enums)*
-        #(#live_enums)*
+        mod #mod_name {
+            #(#other_items)*
+
+            #(#storage_enums)*
+            #(#live_enums)*
+        }
     }
     .into()
 }

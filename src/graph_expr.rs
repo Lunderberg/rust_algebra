@@ -37,6 +37,12 @@ mod temp {
         BoolExpr(BoolExpr),
     }
 
+    enum Basic<T> {
+        Literal(T),
+        Add(Basic<T>, Basic<T>),
+        Sub(Basic<T>, Basic<T>),
+    }
+
     enum IntExpr {
         Int(i64),
         Add(IntExpr, IntExpr),

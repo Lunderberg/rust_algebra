@@ -3,9 +3,163 @@ use std::collections::HashSet;
 use proc_macro2::Span;
 
 use quote::{format_ident, quote};
-use syn::parse_macro_input;
+use syn::{fold::Fold, parse_macro_input};
 
 use itertools::{Either, Itertools};
+
+struct ToStorageEnum<'a> {
+    enum_idents: &'a HashSet<syn::Ident>,
+}
+
+impl<'a> ToStorageEnum<'a> {
+    fn new(enum_idents: &'a HashSet<syn::Ident>) -> Self {
+        Self { enum_idents }
+    }
+
+    fn is_recursive_enum(&self, ty: &syn::Type) -> bool {
+        match ty {
+            syn::Type::Path(path) => {
+                let segments = &path.path.segments;
+                segments.len() == 1 && self.enum_idents.contains(&segments.last().unwrap().ident)
+            }
+            _ => false,
+        }
+    }
+}
+
+impl<'a> Fold for ToStorageEnum<'a> {
+    fn fold_item_enum(&mut self, mut item_enum: syn::ItemEnum) -> syn::ItemEnum {
+        let ident = format_ident!("super");
+        let segment: syn::PathSegment = ident.into();
+        let path: syn::Path = segment.into();
+
+        let vis = syn::VisRestricted {
+            pub_token: syn::Token![pub](Span::call_site()),
+            paren_token: syn::token::Paren(Span::call_site()),
+            in_token: None,
+            path: path.into(),
+        };
+        item_enum.vis = syn::Visibility::Restricted(vis);
+        syn::fold::fold_item_enum(self, item_enum)
+    }
+
+    fn fold_field(&mut self, field: syn::Field) -> syn::Field {
+        if self.is_recursive_enum(&field.ty) {
+            let old_type = &field.ty;
+            let type_ident = quote! { GraphRef<#old_type> };
+            let mut field = field;
+            field.ty = syn::Type::Verbatim(type_ident);
+            field
+        } else {
+            field
+        }
+    }
+}
+
+struct ToLiveEnum<'a> {
+    enum_idents: &'a HashSet<syn::Ident>,
+}
+
+impl<'a> ToLiveEnum<'a> {
+    fn new(enum_idents: &'a HashSet<syn::Ident>) -> Self {
+        Self { enum_idents }
+    }
+
+    fn is_recursive_enum(&self, ty: &syn::Type) -> Option<syn::PathSegment> {
+        match ty {
+            syn::Type::Path(path) => {
+                let segments = &path.path.segments;
+                (segments.len() == 1)
+                    .then(|| segments.last().unwrap())
+                    .filter(|segment| self.enum_idents.contains(&segment.ident))
+                    .cloned()
+            }
+            _ => None,
+        }
+    }
+
+    fn new_lifetime(&self) -> syn::Lifetime {
+        syn::Lifetime::new("'a", Span::call_site())
+    }
+
+    fn new_base_name(&self) -> syn::Ident {
+        format_ident!("NodeBase")
+    }
+}
+
+impl<'a> Fold for ToLiveEnum<'a> {
+    // fn fold_item_enum(&mut self, item_enum: syn::ItemEnum) -> syn::ItemEnum {
+    //     syn::fold::fold_item_enum(self, item_num)
+    // }
+
+    fn fold_generics(&mut self, mut generics: syn::Generics) -> syn::Generics {
+        let base_name: syn::Ident = self.new_base_name().into();
+        let base_name: syn::GenericParam = syn::GenericParam::Type(base_name.into());
+        let lifetime: syn::LifetimeDef = syn::LifetimeDef::new(self.new_lifetime());
+        let lifetime: syn::GenericParam = syn::GenericParam::Lifetime(lifetime);
+
+        generics.params = vec![base_name, lifetime]
+            .into_iter()
+            .chain(generics.params.into_iter())
+            .collect();
+        generics
+    }
+
+    fn fold_field(&mut self, mut field: syn::Field) -> syn::Field {
+        let recursive_segment = self.is_recursive_enum(&field.ty);
+        if recursive_segment.is_none() {
+            return field;
+        }
+        let recursive_segment: syn::PathSegment = recursive_segment.unwrap();
+
+        let storage_type: Vec<syn::PathSegment> = vec![
+            format_ident!("super").into(),
+            format_ident!("storage").into(),
+            recursive_segment.into(),
+        ];
+        let storage_type: syn::Path = syn::Path {
+            leading_colon: None,
+            segments: storage_type.into_iter().collect(),
+        };
+        let storage_type: syn::TypePath = syn::TypePath {
+            qself: None,
+            path: storage_type,
+        };
+        let storage_type: syn::Type = storage_type.into();
+        let storage_type: syn::GenericArgument = syn::GenericArgument::Type(storage_type);
+
+        let lifetime: syn::GenericArgument = syn::GenericArgument::Lifetime(self.new_lifetime());
+
+        let base_name: syn::Ident = self.new_base_name();
+        let base_name: syn::Path = base_name.into();
+        let base_name: syn::TypePath = syn::TypePath {
+            qself: None,
+            path: base_name,
+        };
+        let base_name: syn::Type = base_name.into();
+        let base_name: syn::GenericArgument = syn::GenericArgument::Type(base_name);
+
+        let params = vec![lifetime, base_name, storage_type];
+
+        let outer_type: syn::Ident = format_ident!("LiveGraphRef");
+        let outer_type: syn::PathSegment = syn::PathSegment {
+            ident: outer_type,
+            arguments: syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
+                colon2_token: None,
+                lt_token: syn::Token![<](Span::call_site()),
+                args: params.into_iter().collect(),
+                gt_token: syn::Token![>](Span::call_site()),
+            }),
+        };
+        let outer_type: syn::Path = outer_type.into();
+        let outer_type: syn::TypePath = syn::TypePath {
+            qself: None,
+            path: outer_type,
+        };
+        field.ty = outer_type.into();
+        field
+    }
+}
 
 #[proc_macro_attribute]
 pub fn recursive_graph(
@@ -14,8 +168,9 @@ pub fn recursive_graph(
 ) -> proc_macro::TokenStream {
     let orig: syn::ItemMod = parse_macro_input!(item as syn::ItemMod);
 
-    let mod_name = orig.ident;
+    let mod_name = orig.ident.clone();
     let (enums, other_items): (Vec<syn::ItemEnum>, Vec<syn::Item>) = orig
+        .clone()
         .content
         .expect("Recursive graph module may not be empty")
         .1
@@ -36,7 +191,18 @@ pub fn recursive_graph(
         }
     };
 
-    let storage_enums: Vec<_> = enums
+    let storage_mod = {
+        let mut item_mod = orig.clone();
+        item_mod.ident = format_ident!("storage");
+        ToStorageEnum::new(&enum_idents).fold_item_mod(item_mod)
+    };
+    let live_mod = {
+        let mut item_mod = orig.clone();
+        item_mod.ident = format_ident!("live");
+        ToLiveEnum::new(&enum_idents).fold_item_mod(item_mod)
+    };
+
+    let _storage_enums: Vec<_> = enums
         .iter()
         .cloned()
         .map(|mut e| {
@@ -54,7 +220,7 @@ pub fn recursive_graph(
         })
         .collect();
 
-    let live_enums: Vec<_> = enums
+    let _live_enums: Vec<_> = enums
         .iter()
         .cloned()
         .map(|mut e| {
@@ -68,7 +234,7 @@ pub fn recursive_graph(
             e.generics
                 .params
                 .insert(0, syn::LifetimeDef::new(lifetime.clone()).into());
-            e.generics.params.push({
+            e.generics.params.insert(0, {
                 let param: syn::TypeParam = base_name.clone().into();
                 param.into()
             });
@@ -90,8 +256,10 @@ pub fn recursive_graph(
         mod #mod_name {
             #(#other_items)*
 
-            #(#storage_enums)*
-            #(#live_enums)*
+            #storage_mod
+            #live_mod
+            // #(#storage_enums)*
+            // #(#live_enums)*
         }
     }
     .into()

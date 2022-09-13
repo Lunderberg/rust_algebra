@@ -88,10 +88,6 @@ impl<'a> ToLiveEnum<'a> {
 }
 
 impl<'a> Fold for ToLiveEnum<'a> {
-    // fn fold_item_enum(&mut self, item_enum: syn::ItemEnum) -> syn::ItemEnum {
-    //     syn::fold::fold_item_enum(self, item_num)
-    // }
-
     fn fold_generics(&mut self, mut generics: syn::Generics) -> syn::Generics {
         let base_name: syn::Ident = self.new_base_name().into();
         let base_name: syn::GenericParam = syn::GenericParam::Type(base_name.into());
@@ -106,57 +102,15 @@ impl<'a> Fold for ToLiveEnum<'a> {
     }
 
     fn fold_field(&mut self, mut field: syn::Field) -> syn::Field {
-        let recursive_segment = self.is_recursive_enum(&field.ty);
-        if recursive_segment.is_none() {
-            return field;
+        if let Some(recursive_segment) = self.is_recursive_enum(&field.ty) {
+            let lifetime = self.new_lifetime();
+            let base_name = self.new_base_name();
+
+            field.ty = syn::Type::Verbatim(quote! {
+                LiveGraphRef<#lifetime, #base_name, super::storage::#recursive_segment>
+            });
         }
-        let recursive_segment: syn::PathSegment = recursive_segment.unwrap();
 
-        let storage_type: Vec<syn::PathSegment> = vec![
-            format_ident!("super").into(),
-            format_ident!("storage").into(),
-            recursive_segment.into(),
-        ];
-        let storage_type: syn::Path = syn::Path {
-            leading_colon: None,
-            segments: storage_type.into_iter().collect(),
-        };
-        let storage_type: syn::TypePath = syn::TypePath {
-            qself: None,
-            path: storage_type,
-        };
-        let storage_type: syn::Type = storage_type.into();
-        let storage_type: syn::GenericArgument = syn::GenericArgument::Type(storage_type);
-
-        let lifetime: syn::GenericArgument = syn::GenericArgument::Lifetime(self.new_lifetime());
-
-        let base_name: syn::Ident = self.new_base_name();
-        let base_name: syn::Path = base_name.into();
-        let base_name: syn::TypePath = syn::TypePath {
-            qself: None,
-            path: base_name,
-        };
-        let base_name: syn::Type = base_name.into();
-        let base_name: syn::GenericArgument = syn::GenericArgument::Type(base_name);
-
-        let params = vec![lifetime, base_name, storage_type];
-
-        let outer_type: syn::Ident = format_ident!("LiveGraphRef");
-        let outer_type: syn::PathSegment = syn::PathSegment {
-            ident: outer_type,
-            arguments: syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments {
-                colon2_token: None,
-                lt_token: syn::Token![<](Span::call_site()),
-                args: params.into_iter().collect(),
-                gt_token: syn::Token![>](Span::call_site()),
-            }),
-        };
-        let outer_type: syn::Path = outer_type.into();
-        let outer_type: syn::TypePath = syn::TypePath {
-            qself: None,
-            path: outer_type,
-        };
-        field.ty = outer_type.into();
         field
     }
 }

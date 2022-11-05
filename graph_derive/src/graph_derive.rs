@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 
 use proc_macro2::{Span, TokenStream};
 
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, ToTokens};
 use syn::{fold::Fold, parse_macro_input, visit::Visit};
 
 struct CollectDetails {
@@ -284,6 +284,20 @@ impl Fold for AnnotatedToSelector {
 }
 
 #[proc_macro_attribute]
+pub fn derive_enum_types(
+    _attr: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let orig: syn::ItemMod = parse_macro_input!(item as syn::ItemMod);
+
+    let indirect_references = CollectDetails::collect_indirect_references(&orig);
+
+    let annotated = AnnotateEnums::new(indirect_references).fold_item_mod(orig);
+
+    annotated.to_token_stream().into()
+}
+
+#[proc_macro_attribute]
 pub fn apply_enum_types(
     _attr: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
@@ -313,27 +327,11 @@ pub fn apply_enum_types(
 }
 
 #[proc_macro_attribute]
-pub fn derive_enum_types(
-    _attr: proc_macro::TokenStream,
-    item: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    let orig: syn::ItemMod = parse_macro_input!(item as syn::ItemMod);
-
-    let indirect_references = CollectDetails::collect_indirect_references(&orig);
-
-    let annotated = AnnotateEnums::new(indirect_references).fold_item_mod(orig);
-
-    quote! {
-        #[graph_derive::apply_enum_types]
-        #annotated
-    }
-    .into()
-}
-
-#[proc_macro_attribute]
 pub fn recursive_graph(
     _attr: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
+    let item = derive_enum_types(proc_macro::TokenStream::new(), item);
+    let item = apply_enum_types(proc_macro::TokenStream::new(), item);
     item
 }

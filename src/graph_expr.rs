@@ -4,10 +4,9 @@
 use crate::graph::{GraphRef, LiveGraphRef, NodeType, Subgraph};
 use crate::Error;
 
-use graph_derive::{derive_enum_types, recursive_graph};
+use graph_derive::recursive_graph;
 
-// #[recursive_graph]
-#[derive_enum_types]
+#[recursive_graph]
 mod temp {
     use crate::graph::{GraphRef, LiveGraphRef, NodeType, Subgraph};
 

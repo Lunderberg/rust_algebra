@@ -245,7 +245,8 @@ fn generate_storage_enum(
             if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
                 let ident = &path.segments.last().unwrap().ident;
                 if self.referenced.contains(&ident) {
-                    return syn::parse2(quote! { GraphRef<#path> }).unwrap();
+                    return syn::parse2(quote! { GraphRef<#path> })
+                        .expect("Error parsing generated storage enum");
                 }
             }
             ty
@@ -265,6 +266,91 @@ fn generate_storage_enum(
     )
 }
 
+fn generate_storage_trait_impl<'a, 'b, 'c>(
+    item_enum: &'b syn::ItemEnum,
+    referenced_enums: &'a Vec<syn::ItemEnum>,
+) -> impl Iterator<Item = syn::Item> + 'c
+where
+    'a: 'c,
+    'b: 'c,
+{
+    let selector = &item_enum.ident;
+
+    let referenced_names: HashSet<syn::Ident> = referenced_enums
+        .iter()
+        .map(|item_enum| item_enum.ident.clone())
+        .collect();
+    let is_recursive_type = move |ty: &syn::Type| -> bool {
+        match ty {
+            syn::Type::Path(path) => {
+                let ident = &path.path.segments.last().unwrap().ident;
+                referenced_names.contains(ident)
+            }
+            _ => false,
+        }
+    };
+
+    referenced_enums.iter().map(move |referenced_enum| {
+        let referenced_name = &referenced_enum.ident;
+        let live_type_arms: Vec<syn::Arm> = referenced_enum.variants
+            .iter()
+            .map(|var: &syn::Variant| -> syn::Arm {
+                let ident = &var.ident;
+                match &var.fields {
+                    syn::Fields::Named(_) => todo!("Named enum fields"),
+                    syn::Fields::Unnamed(fields) => {
+                        let (field_names,live_field_exprs): (Vec<_>, Vec<_>) = fields.unnamed.iter()
+                            .enumerate()
+                            .map(|(i,field)| {
+                                let ident = format_ident!("field_{i}");
+                                let stream = if is_recursive_type(&field.ty) {
+                                    quote!{ LiveGraphRef::new(*#ident, subgraph.clone()) }
+                                } else {
+                                    quote!{ *#ident }
+                                };
+                                let expr: syn::Expr = syn::parse2(stream).expect("Error parsing generated live field");
+                                (ident,expr)
+                            })
+                            .unzip();
+                        syn::parse2(quote!{
+                            Self::#ident(#(#field_names),*) =>
+                                Self::LiveType::#ident(#(#live_field_exprs),*),
+                        }).expect("Error parsing generated arm in match statement")
+                    }
+                    syn::Fields::Unit => {
+                        syn::parse2(quote!{
+                            Self::#ident => Self::LiveType::#ident,
+                        }).unwrap()
+                    }
+                }
+            })
+            .collect();
+
+        let stream = quote! {
+            impl NodeType<super::selector::#selector> for #referenced_name {
+                type LiveType<'a> = super::live::#referenced_name<'a, super::selector::#selector>;
+
+                const NAME: &'static str = "#referenced_name";
+
+                fn from_base(base: &super::selector::#selector) -> Option<&Self> {
+                    match base {
+                        super::selector::#selector::#referenced_name(e) => Some(e),
+                        _ => None,
+                    }
+                }
+
+                fn to_live_type<'a, 'b: 'a>(&self, subgraph: Subgraph<'b, super::selector::#selector>) -> Self::LiveType<'a> {
+                    match self {
+                        #(#live_type_arms)*
+                    }
+                }
+            }
+        };
+        syn::parse2(stream)
+            .expect("Error parsing generated storage trait")
+    })
+}
+
 fn generate_live_enum(
     item_enum: &syn::ItemEnum,
     referenced: &Vec<syn::ItemEnum>,
@@ -279,7 +365,7 @@ fn generate_live_enum(
             syn::parse2(quote! {
                 <'a, Selector: NodeTypeSelector, #params>
             })
-            .unwrap()
+            .expect("Error parsing generated generics for live enum")
         }
 
         fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
@@ -289,7 +375,7 @@ fn generate_live_enum(
                     return syn::parse2(
                         quote! { LiveGraphRef<'a, Selector, super::storage::#path> },
                     )
-                    .unwrap();
+                    .expect("Error parsing generated type for live enum");
                 }
             }
             ty
@@ -321,9 +407,74 @@ fn generate_selector_enum(
             syn::parse2::<syn::Variant>(quote! {
                 #ident(super::storage::#ident)
             })
-            .unwrap()
+            .expect("Error parsing generated selector enum")
         })
         .collect();
+    std::iter::once(item.into())
+}
+
+fn generate_selector_trait_impl(
+    item: &syn::ItemEnum,
+    referenced_enums: &Vec<syn::ItemEnum>,
+) -> impl Iterator<Item = syn::Item> {
+    let name = &item.ident;
+
+    let referenced_names: Vec<String> = referenced_enums
+        .iter()
+        .map(|item_enum| {
+            let p = item_enum.ident.to_token_stream();
+            format!("{p}")
+        })
+        .collect();
+
+    let referenced_idents: Vec<&syn::Ident> = referenced_enums
+        .iter()
+        .map(|item_enum| &item_enum.ident)
+        .collect();
+
+    let stream = quote! {
+            impl NodeTypeSelector for #name {
+                type LiveType<'a> = super::live_selector::#name<'a, Self>;
+
+                fn type_name(&self) -> &'static str {
+                    match self {
+                        #(Self::#referenced_idents(_) => #referenced_names,)*
+                    }
+                }
+
+                fn to_live_type<'a, 'b: 'a>(&self, subgraph: Subgraph<'b, Self>) -> Self::LiveType<'a> {
+                    match self {
+                        #(Self::#referenced_idents(e) => Self::LiveType::#referenced_idents(e.to_live_type(subgraph)),)*
+                    }
+                }
+            }
+    };
+
+    std::iter::once(syn::parse2(stream).expect("Error parsing generated selector trait"))
+}
+
+fn generate_live_selector_enum(
+    item: &syn::ItemEnum,
+    recursive: &Vec<syn::ItemEnum>,
+) -> impl Iterator<Item = syn::Item> {
+    let mut item = item.clone();
+    item.variants = recursive
+        .iter()
+        .map(|item_enum: &syn::ItemEnum| -> syn::Variant {
+            let ident = &item_enum.ident;
+            syn::parse2::<syn::Variant>(quote! {
+                #ident(super::live::#ident<'a, Selector>)
+            })
+            .expect("Error in generated live selector enum")
+        })
+        .collect();
+
+    let prev_generics = item.generics.params;
+    item.generics = syn::parse2(quote! {
+        <'a, Selector: NodeTypeSelector, #prev_generics>
+    })
+    .expect("Error parsing generics of live selector");
+
     std::iter::once(item.into())
 }
 
@@ -343,20 +494,18 @@ pub fn derive_enum_types(
 
 fn apply_generator<'a, G, I>(
     enums: &'a Vec<(syn::ItemEnum, Vec<syn::ItemEnum>)>,
-    dest_module: &str,
+    dest_module: &'a str,
     mut generator: G,
-) -> impl Iterator<Item = (String, syn::Item)> + 'a
+) -> impl Iterator<Item = (&'a str, syn::Item)> + 'a
 where
-    G: FnMut(&syn::ItemEnum, &Vec<syn::ItemEnum>) -> I,
-    G: 'static,
+    G: FnMut(&'a syn::ItemEnum, &'a Vec<syn::ItemEnum>) -> I + 'a,
     I: Iterator<Item = syn::Item>,
 {
-    let dest_module: String = dest_module.into();
     enums
         .iter()
         .map(move |(e, p)| generator(e, p))
         .flatten()
-        .map(move |item| (dest_module.clone(), item))
+        .map(move |item| (dest_module, item))
 }
 
 #[proc_macro_attribute]
@@ -375,10 +524,25 @@ pub fn apply_enum_types(
         })
         .collect();
 
-    let modules: Vec<_> = std::iter::empty::<(String, syn::Item)>()
+    let modules: Vec<_> = std::iter::empty::<(&str, syn::Item)>()
         .chain(apply_generator(&enums, "storage", generate_storage_enum))
+        .chain(apply_generator(
+            &enums,
+            "storage",
+            generate_storage_trait_impl,
+        ))
         .chain(apply_generator(&enums, "live", generate_live_enum))
         .chain(apply_generator(&enums, "selector", generate_selector_enum))
+        .chain(apply_generator(
+            &enums,
+            "live_selector",
+            generate_live_selector_enum,
+        ))
+        .chain(apply_generator(
+            &enums,
+            "selector",
+            generate_selector_trait_impl,
+        ))
         .into_group_map()
         .into_iter()
         .map(|(name, items)| {

@@ -207,7 +207,7 @@ fn collect_annotated_enums(
     }
 }
 
-fn generate_storage_enum(item_enum: syn::ItemEnum, recursive: &Vec<syn::Path>) -> syn::ItemEnum {
+fn generate_storage_enum(item_enum: syn::ItemEnum, recursive: &Vec<syn::Path>) -> syn::Item {
     struct Mutator {
         paths: HashSet<syn::Path>,
     }
@@ -227,9 +227,10 @@ fn generate_storage_enum(item_enum: syn::ItemEnum, recursive: &Vec<syn::Path>) -
         paths: recursive.iter().cloned().collect(),
     }
     .fold_item_enum(item_enum)
+    .into()
 }
 
-fn generate_live_enum(item_enum: syn::ItemEnum, recursive: &Vec<syn::Path>) -> syn::ItemEnum {
+fn generate_live_enum(item_enum: syn::ItemEnum, recursive: &Vec<syn::Path>) -> syn::Item {
     struct Mutator {
         paths: HashSet<syn::Path>,
     }
@@ -260,9 +261,10 @@ fn generate_live_enum(item_enum: syn::ItemEnum, recursive: &Vec<syn::Path>) -> s
         paths: recursive.iter().cloned().collect(),
     }
     .fold_item_enum(item_enum)
+    .into()
 }
 
-fn generate_selector_enum(mut item: syn::ItemEnum, recursive: &Vec<syn::Path>) -> syn::ItemEnum {
+fn generate_selector_enum(mut item: syn::ItemEnum, recursive: &Vec<syn::Path>) -> syn::Item {
     item.variants = recursive
         .iter()
         .map(|path: &syn::Path| -> syn::Variant {
@@ -272,7 +274,7 @@ fn generate_selector_enum(mut item: syn::ItemEnum, recursive: &Vec<syn::Path>) -
             .unwrap()
         })
         .collect();
-    item
+    item.into()
 }
 
 #[proc_macro_attribute]
@@ -297,10 +299,17 @@ pub fn apply_enum_types(
     let orig: syn::ItemMod = parse_macro_input!(item as syn::ItemMod);
 
     let (orig_mod, enums) = collect_annotated_enums(orig);
+    let enums: Vec<_> = enums
+        .into_iter()
+        .map(|(mut item_enum, paths)| {
+            item_enum.vis = syn::parse2(quote! {pub}).unwrap();
+            (item_enum, paths)
+        })
+        .collect();
 
     let make_updated_module =
         |name: &str,
-         updater: &mut dyn FnMut(syn::ItemEnum, &Vec<syn::Path>) -> syn::ItemEnum|
+         updater: &mut dyn FnMut(syn::ItemEnum, &Vec<syn::Path>) -> syn::Item|
          -> syn::ItemMod {
             let mut item_mod = orig_mod.clone();
             item_mod.ident = format_ident!("{}", name);
@@ -313,10 +322,6 @@ pub fn apply_enum_types(
                 let new_content = enums
                     .iter()
                     .map(|(item_enum, recursive)| updater(item_enum.clone(), recursive))
-                    .map(|mut item_enum| {
-                        item_enum.vis = syn::parse2(quote! {pub}).unwrap();
-                        item_enum
-                    })
                     .map(|item_enum| -> syn::Item { item_enum.into() });
                 item_mod.content = Some((
                     syn::token::Brace::default(),

@@ -559,16 +559,21 @@ pub fn apply_enum_types(
 
                 item_mod.content = Some((syn::token::Brace::default(), content));
             }
+            item_mod.vis = syn::parse2(quote! {pub}).unwrap();
             item_mod
         })
         .collect();
 
-    quote! {
-        mod temp{
-            #(#modules)*
-        }
-    }
-    .into()
+    let mut out_mod = orig_mod;
+    let content = out_mod
+        .content
+        .map(|tuple| tuple.1.into_iter())
+        .into_iter()
+        .flatten()
+        .chain(modules.into_iter().map(|item_mod| item_mod.into()))
+        .collect();
+    out_mod.content = Some((syn::token::Brace::default(), content));
+    out_mod.to_token_stream().into()
 }
 
 #[proc_macro_attribute]

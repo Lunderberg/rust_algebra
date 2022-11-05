@@ -1,14 +1,14 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
-use crate::graph::{GraphRef, LiveGraphRef, NodeType, Subgraph};
+use crate::graph::{GraphRef, LiveGraphRef, NodeType, NodeTypeSelector, Subgraph};
 use crate::Error;
 
 use graph_derive::recursive_graph;
 
 #[recursive_graph]
 mod temp {
-    use crate::graph::{GraphRef, LiveGraphRef, NodeType, Subgraph};
+    use crate::graph::{GraphRef, LiveGraphRef, NodeType, NodeTypeSelector, Subgraph};
 
     // First one is special, defines the name of all the others.
     // Maybe replace in the future, special handling for
@@ -109,49 +109,49 @@ enum LiveExpr<'a> {
 }
 
 #[derive(Debug)]
-enum LiveIntExpr<'a, NodeBase> {
+enum LiveIntExpr<'a, Selector: NodeTypeSelector> {
     Int(i64),
     Add(
-        LiveGraphRef<'a, NodeBase, IntExpr>,
-        LiveGraphRef<'a, NodeBase, IntExpr>,
+        LiveGraphRef<'a, Selector, IntExpr>,
+        LiveGraphRef<'a, Selector, IntExpr>,
     ),
     Sub(
-        LiveGraphRef<'a, NodeBase, IntExpr>,
-        LiveGraphRef<'a, NodeBase, IntExpr>,
+        LiveGraphRef<'a, Selector, IntExpr>,
+        LiveGraphRef<'a, Selector, IntExpr>,
     ),
 }
 
 #[derive(Debug)]
-enum LiveFloatExpr<'a, NodeBase> {
+enum LiveFloatExpr<'a, Selector: NodeTypeSelector> {
     Float(f64),
     Add(
-        LiveGraphRef<'a, NodeBase, FloatExpr>,
-        LiveGraphRef<'a, NodeBase, FloatExpr>,
+        LiveGraphRef<'a, Selector, FloatExpr>,
+        LiveGraphRef<'a, Selector, FloatExpr>,
     ),
     Sub(
-        LiveGraphRef<'a, NodeBase, FloatExpr>,
-        LiveGraphRef<'a, NodeBase, FloatExpr>,
+        LiveGraphRef<'a, Selector, FloatExpr>,
+        LiveGraphRef<'a, Selector, FloatExpr>,
     ),
 }
 
 #[derive(Debug)]
-enum LiveBoolExpr<'a, NodeBase> {
+enum LiveBoolExpr<'a, Selector: NodeTypeSelector> {
     Bool(bool),
     IntEqual(
-        LiveGraphRef<'a, NodeBase, IntExpr>,
-        LiveGraphRef<'a, NodeBase, IntExpr>,
+        LiveGraphRef<'a, Selector, IntExpr>,
+        LiveGraphRef<'a, Selector, IntExpr>,
     ),
     FloatEqual(
-        LiveGraphRef<'a, NodeBase, FloatExpr>,
-        LiveGraphRef<'a, NodeBase, FloatExpr>,
+        LiveGraphRef<'a, Selector, FloatExpr>,
+        LiveGraphRef<'a, Selector, FloatExpr>,
     ),
     And(
-        LiveGraphRef<'a, NodeBase, BoolExpr>,
-        LiveGraphRef<'a, NodeBase, BoolExpr>,
+        LiveGraphRef<'a, Selector, BoolExpr>,
+        LiveGraphRef<'a, Selector, BoolExpr>,
     ),
     Or(
-        LiveGraphRef<'a, NodeBase, BoolExpr>,
-        LiveGraphRef<'a, NodeBase, BoolExpr>,
+        LiveGraphRef<'a, Selector, BoolExpr>,
+        LiveGraphRef<'a, Selector, BoolExpr>,
     ),
 }
 
@@ -165,15 +165,18 @@ impl Expr {
     }
 }
 
-impl NodeType<Expr> for Expr {
+impl NodeTypeSelector for Expr {
     type LiveType<'a> = LiveExpr<'a>;
-    const NAME: &'static str = "Expr";
 
-    fn from_base(base: &Expr) -> Option<&Self> {
-        Some(base)
+    fn type_name(&self) -> &'static str {
+        match self {
+            Expr::IntExpr(_) => "IntExpr",
+            Expr::FloatExpr(_) => "FloatExpr",
+            Expr::BoolExpr(_) => "BoolExpr",
+        }
     }
 
-    fn to_live_type<'a, 'b: 'a>(&self, subgraph: Subgraph<'b, Expr>) -> Self::LiveType<'a> {
+    fn to_live_type<'a, 'b: 'a>(&self, subgraph: Subgraph<'b, Self>) -> Self::LiveType<'a> {
         match self {
             Expr::IntExpr(e) => LiveExpr::IntExpr(e.to_live_type(subgraph)),
             Expr::FloatExpr(e) => LiveExpr::FloatExpr(e.to_live_type(subgraph)),
@@ -288,10 +291,9 @@ mod test {
             Expr::IntExpr(IntExpr::Sub(2.into(), 1.into())),
         ])?;
 
-        let root: LiveGraphRef<'_, Expr, Expr> = expr.root();
-        let borrowed: LiveExpr = root.borrow()?;
+        let root: LiveExpr = expr.root();
 
-        match borrowed {
+        match root {
             LiveExpr::IntExpr(i) => {
                 println!("Found int expression, {i:?}");
                 match i {

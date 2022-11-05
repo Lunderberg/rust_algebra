@@ -239,7 +239,7 @@ impl Fold for AnnotatedToLive {
     fn fold_generics(&mut self, generics: syn::Generics) -> syn::Generics {
         let params = generics.params;
         syn::parse2(quote! {
-            <'a, NodeSelector, #params>
+            <'a, Selector: NodeTypeSelector, #params>
         })
         .unwrap()
     }
@@ -247,10 +247,8 @@ impl Fold for AnnotatedToLive {
     fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
         if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
             if self.paths.contains(path) {
-                return syn::parse2(
-                    quote! { LiveGraphRef<'a, NodeSelector, super::storage::#path> },
-                )
-                .unwrap();
+                return syn::parse2(quote! { LiveGraphRef<'a, Selector, super::storage::#path> })
+                    .unwrap();
             }
         }
         ty

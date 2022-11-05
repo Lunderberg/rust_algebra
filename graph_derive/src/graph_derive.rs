@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::marker::PhantomData;
 
 use proc_macro2::{Span, TokenStream};
 
@@ -150,135 +149,130 @@ impl Fold for AnnotateEnums {
     }
 }
 
-trait RecursiveEnumUpdater: Fold {
-    fn new(recursive: Vec<syn::Path>) -> Self;
-}
+fn collect_annotated_enums(
+    mut item_mod: syn::ItemMod,
+) -> (syn::ItemMod, Vec<(syn::ItemEnum, Vec<syn::Path>)>) {
+    if let Some((brace, content)) = item_mod.content {
+        let (enums, other): (Vec<_>, Vec<_>) = content.into_iter().partition(|item| match item {
+            syn::Item::Enum(item) => item
+                .attrs
+                .iter()
+                .any(|attr| is_attr(&attr.path, "requires_graph_storage_type")),
+            _ => false,
+        });
 
-struct UpdateRecursiveEnums<R: RecursiveEnumUpdater> {
-    _updater: PhantomData<R>,
-}
-
-impl<R: RecursiveEnumUpdater> UpdateRecursiveEnums<R> {
-    fn new() -> Self {
-        Self {
-            _updater: PhantomData,
-        }
-    }
-}
-
-impl<R: RecursiveEnumUpdater> Fold for UpdateRecursiveEnums<R> {
-    fn fold_item_enum(&mut self, mut item: syn::ItemEnum) -> syn::ItemEnum {
-        let paths: Vec<syn::Path> = item
-            .attrs
-            .iter()
-            .filter(|attr| is_attr(&attr.path, "requires_graph_storage_type"))
-            .map(|attr| {
-                match attr.parse_meta() {
-                    Ok(syn::Meta::List(meta_list)) => meta_list,
-                    _ => panic!("Incorrect graph storage format"),
-                }
-                .nested
-                .into_iter()
-                .map(|meta| match meta {
-                    syn::NestedMeta::Meta(syn::Meta::Path(path)) => path,
-                    _ => panic!("Incorrect graph storage format"),
-                })
-            })
-            .flatten()
-            .collect();
-
-        item.attrs = item
-            .attrs
+        let enums = enums
             .into_iter()
-            .filter(|attr| !is_attr(&attr.path, "requires_graph_storage_type"))
-            .collect();
+            .map(|item: syn::Item| -> syn::ItemEnum {
+                if let syn::Item::Enum(item_enum) = item {
+                    item_enum
+                } else {
+                    panic!("List should only contain enums at this point")
+                }
+            })
+            .map(|mut item| {
+                let paths: Vec<syn::Path> = item
+                    .attrs
+                    .iter()
+                    .filter(|attr| is_attr(&attr.path, "requires_graph_storage_type"))
+                    .map(|attr| {
+                        match attr.parse_meta() {
+                            Ok(syn::Meta::List(meta_list)) => meta_list,
+                            _ => panic!("Incorrect graph storage format"),
+                        }
+                        .nested
+                        .into_iter()
+                        .map(|meta| match meta {
+                            syn::NestedMeta::Meta(syn::Meta::Path(path)) => path,
+                            _ => panic!("Incorrect graph storage format"),
+                        })
+                    })
+                    .flatten()
+                    .collect();
 
-        item.vis = syn::parse2(quote! {pub}).unwrap();
-
-        let mut subvisitor = R::new(paths);
-        subvisitor.fold_item_enum(item)
-    }
-}
-
-struct AnnotatedToStorage {
-    paths: HashSet<syn::Path>,
-}
-
-impl RecursiveEnumUpdater for AnnotatedToStorage {
-    fn new(recursive: Vec<syn::Path>) -> Self {
-        Self {
-            paths: recursive.into_iter().collect(),
-        }
-    }
-}
-
-impl Fold for AnnotatedToStorage {
-    fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
-        if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
-            if self.paths.contains(path) {
-                return syn::parse2(quote! { GraphRef<#path> }).unwrap();
-            }
-        }
-        ty
-    }
-}
-
-struct AnnotatedToLive {
-    paths: HashSet<syn::Path>,
-}
-
-impl RecursiveEnumUpdater for AnnotatedToLive {
-    fn new(recursive: Vec<syn::Path>) -> Self {
-        Self {
-            paths: recursive.into_iter().collect(),
-        }
-    }
-}
-
-impl Fold for AnnotatedToLive {
-    fn fold_generics(&mut self, generics: syn::Generics) -> syn::Generics {
-        let params = generics.params;
-        syn::parse2(quote! {
-            <'a, Selector: NodeTypeSelector, #params>
-        })
-        .unwrap()
-    }
-
-    fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
-        if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
-            if self.paths.contains(path) {
-                return syn::parse2(quote! { LiveGraphRef<'a, Selector, super::storage::#path> })
-                    .unwrap();
-            }
-        }
-        ty
-    }
-}
-
-struct AnnotatedToSelector {
-    paths: Vec<syn::Path>,
-}
-
-impl RecursiveEnumUpdater for AnnotatedToSelector {
-    fn new(paths: Vec<syn::Path>) -> Self {
-        Self { paths }
-    }
-}
-
-impl Fold for AnnotatedToSelector {
-    fn fold_item_enum(&mut self, mut item: syn::ItemEnum) -> syn::ItemEnum {
-        item.variants = self
-            .paths
-            .iter()
-            .map(|path: &syn::Path| -> syn::Variant {
-                syn::parse2::<syn::Variant>(quote! {
-                    #path(super::storage::#path)
-                })
-                .unwrap()
+                item.attrs = item
+                    .attrs
+                    .into_iter()
+                    .filter(|attr| !is_attr(&attr.path, "requires_graph_storage_type"))
+                    .collect();
+                (item, paths)
             })
             .collect();
-        item
+
+        item_mod.content = Some((brace, other));
+
+        (item_mod, enums)
+    } else {
+        (item_mod, Vec::new())
     }
+}
+
+fn generate_storage_enum(item_enum: syn::ItemEnum, recursive: &Vec<syn::Path>) -> syn::ItemEnum {
+    struct Mutator {
+        paths: HashSet<syn::Path>,
+    }
+
+    impl Fold for Mutator {
+        fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
+            if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
+                if self.paths.contains(path) {
+                    return syn::parse2(quote! { GraphRef<#path> }).unwrap();
+                }
+            }
+            ty
+        }
+    }
+
+    Mutator {
+        paths: recursive.iter().cloned().collect(),
+    }
+    .fold_item_enum(item_enum)
+}
+
+fn generate_live_enum(item_enum: syn::ItemEnum, recursive: &Vec<syn::Path>) -> syn::ItemEnum {
+    struct Mutator {
+        paths: HashSet<syn::Path>,
+    }
+
+    impl Fold for Mutator {
+        fn fold_generics(&mut self, generics: syn::Generics) -> syn::Generics {
+            let params = generics.params;
+            syn::parse2(quote! {
+                <'a, Selector: NodeTypeSelector, #params>
+            })
+            .unwrap()
+        }
+
+        fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
+            if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
+                if self.paths.contains(path) {
+                    return syn::parse2(
+                        quote! { LiveGraphRef<'a, Selector, super::storage::#path> },
+                    )
+                    .unwrap();
+                }
+            }
+            ty
+        }
+    }
+
+    Mutator {
+        paths: recursive.iter().cloned().collect(),
+    }
+    .fold_item_enum(item_enum)
+}
+
+fn generate_selector_enum(mut item: syn::ItemEnum, recursive: &Vec<syn::Path>) -> syn::ItemEnum {
+    item.variants = recursive
+        .iter()
+        .map(|path: &syn::Path| -> syn::Variant {
+            syn::parse2::<syn::Variant>(quote! {
+                #path(super::storage::#path)
+            })
+            .unwrap()
+        })
+        .collect();
+    item
 }
 
 #[proc_macro_attribute]
@@ -302,17 +296,39 @@ pub fn apply_enum_types(
 ) -> proc_macro::TokenStream {
     let orig: syn::ItemMod = parse_macro_input!(item as syn::ItemMod);
 
-    let mut storage_mod: syn::ItemMod =
-        UpdateRecursiveEnums::<AnnotatedToStorage>::new().fold_item_mod(orig.clone());
-    storage_mod.ident = format_ident!("storage");
+    let (orig_mod, enums) = collect_annotated_enums(orig);
 
-    let mut live_mod: syn::ItemMod =
-        UpdateRecursiveEnums::<AnnotatedToLive>::new().fold_item_mod(orig.clone());
-    live_mod.ident = format_ident!("live");
+    let make_updated_module =
+        |name: &str,
+         updater: &mut dyn FnMut(syn::ItemEnum, &Vec<syn::Path>) -> syn::ItemEnum|
+         -> syn::ItemMod {
+            let mut item_mod = orig_mod.clone();
+            item_mod.ident = format_ident!("{}", name);
+            if !enums.is_empty() {
+                let old_content = item_mod
+                    .content
+                    .map(|(_brace, vec)| vec.into_iter())
+                    .into_iter()
+                    .flatten();
+                let new_content = enums
+                    .iter()
+                    .map(|(item_enum, recursive)| updater(item_enum.clone(), recursive))
+                    .map(|mut item_enum| {
+                        item_enum.vis = syn::parse2(quote! {pub}).unwrap();
+                        item_enum
+                    })
+                    .map(|item_enum| -> syn::Item { item_enum.into() });
+                item_mod.content = Some((
+                    syn::token::Brace::default(),
+                    old_content.chain(new_content).collect(),
+                ));
+            }
+            item_mod
+        };
 
-    let mut selector_mod: syn::ItemMod =
-        UpdateRecursiveEnums::<AnnotatedToSelector>::new().fold_item_mod(orig.clone());
-    selector_mod.ident = format_ident!("selector");
+    let storage_mod = make_updated_module("storage", &mut generate_storage_enum);
+    let live_mod = make_updated_module("live", &mut generate_live_enum);
+    let selector_mod = make_updated_module("selector", &mut generate_selector_enum);
 
     quote! {
         mod temp{

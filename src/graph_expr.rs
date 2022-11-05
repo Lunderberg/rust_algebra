@@ -165,18 +165,15 @@ impl Expr {
     }
 }
 
-impl<'a, 'b> NodeType<'a, 'b, Expr> for Expr
-where
-    'a: 'b,
-{
-    type LiveType = LiveExpr<'b>;
+impl NodeType<Expr> for Expr {
+    type LiveType<'a> = LiveExpr<'a>;
     const NAME: &'static str = "Expr";
 
     fn from_base(base: &Expr) -> Option<&Self> {
         Some(base)
     }
 
-    fn to_live_type(&self, subgraph: Subgraph<'a, Expr>) -> Self::LiveType {
+    fn to_live_type<'a, 'b: 'a>(&self, subgraph: Subgraph<'b, Expr>) -> Self::LiveType<'a> {
         match self {
             Expr::IntExpr(e) => LiveExpr::IntExpr(e.to_live_type(subgraph)),
             Expr::FloatExpr(e) => LiveExpr::FloatExpr(e.to_live_type(subgraph)),
@@ -185,11 +182,8 @@ where
     }
 }
 
-impl<'a, 'b> NodeType<'a, 'b, Expr> for IntExpr
-where
-    'a: 'b,
-{
-    type LiveType = LiveIntExpr<'b, Expr>;
+impl NodeType<Expr> for IntExpr {
+    type LiveType<'a> = LiveIntExpr<'a, Expr>;
     const NAME: &'static str = "IntExpr";
 
     fn from_base(base: &Expr) -> Option<&Self> {
@@ -199,7 +193,7 @@ where
         }
     }
 
-    fn to_live_type(&self, subgraph: Subgraph<'a, Expr>) -> Self::LiveType {
+    fn to_live_type<'a, 'b: 'a>(&self, subgraph: Subgraph<'b, Expr>) -> Self::LiveType<'a> {
         match self {
             IntExpr::Int(i) => LiveIntExpr::Int(*i),
             IntExpr::Add(a, b) => LiveIntExpr::Add(
@@ -214,11 +208,8 @@ where
     }
 }
 
-impl<'a, 'b> NodeType<'a, 'b, Expr> for FloatExpr
-where
-    'a: 'b,
-{
-    type LiveType = LiveFloatExpr<'b, Expr>;
+impl NodeType<Expr> for FloatExpr {
+    type LiveType<'a> = LiveFloatExpr<'a, Expr>;
     const NAME: &'static str = "FloatExpr";
 
     fn from_base(base: &Expr) -> Option<&Self> {
@@ -228,7 +219,7 @@ where
         }
     }
 
-    fn to_live_type(&self, subgraph: Subgraph<'a, Expr>) -> Self::LiveType {
+    fn to_live_type<'a, 'b: 'a>(&self, subgraph: Subgraph<'b, Expr>) -> Self::LiveType<'a> {
         match self {
             FloatExpr::Float(f) => LiveFloatExpr::Float(*f),
             FloatExpr::Add(a, b) => LiveFloatExpr::Add(
@@ -243,11 +234,8 @@ where
     }
 }
 
-impl<'a, 'b> NodeType<'a, 'b, Expr> for BoolExpr
-where
-    'a: 'b,
-{
-    type LiveType = LiveBoolExpr<'b, Expr>;
+impl NodeType<Expr> for BoolExpr {
+    type LiveType<'a> = LiveBoolExpr<'a, Expr>;
     const NAME: &'static str = "BoolExpr";
 
     fn from_base(base: &Expr) -> Option<&Self> {
@@ -257,7 +245,7 @@ where
         }
     }
 
-    fn to_live_type(&self, subgraph: Subgraph<'a, Expr>) -> Self::LiveType {
+    fn to_live_type<'a, 'b: 'a>(&self, subgraph: Subgraph<'b, Expr>) -> Self::LiveType<'a> {
         match self {
             BoolExpr::Bool(b) => LiveBoolExpr::Bool(*b),
             BoolExpr::IntEqual(a, b) => LiveBoolExpr::IntEqual(

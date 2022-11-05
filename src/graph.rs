@@ -22,11 +22,13 @@ pub struct LiveGraphRef<'a, NodeBase, NodeType> {
     graph_ref: GraphRef<NodeType>,
 }
 
-pub trait NodeType<'a: 'b, 'b, BaseType> {
-    type LiveType;
+pub trait NodeType<BaseType> {
+    type LiveType<'a>
+    where
+        BaseType: 'a;
     const NAME: &'static str;
     fn from_base(base: &BaseType) -> Option<&Self>;
-    fn to_live_type(&self, subgraph: Subgraph<'a, BaseType>) -> Self::LiveType;
+    fn to_live_type<'a, 'b: 'a>(&self, subgraph: Subgraph<'b, BaseType>) -> Self::LiveType<'a>;
 }
 
 impl<'a, Base> Subgraph<'a, Base> {
@@ -44,10 +46,7 @@ impl<NodeBase> Graph<NodeBase> {
     }
 
     #[allow(dead_code)]
-    pub fn root<'a, 'b>(&'a self) -> LiveGraphRef<'b, NodeBase, NodeBase>
-    where
-        'a: 'b,
-    {
+    pub fn root<'a, 'b: 'a>(&'b self) -> LiveGraphRef<'a, NodeBase, NodeBase> {
         LiveGraphRef {
             subgraph: self.into(),
             graph_ref: 0.into(),
@@ -56,10 +55,7 @@ impl<NodeBase> Graph<NodeBase> {
 }
 
 impl<'a, NodeBase, NodeType> LiveGraphRef<'a, NodeBase, NodeType> {
-    pub fn new<'b>(graph_ref: GraphRef<NodeType>, subgraph: Subgraph<'b, NodeBase>) -> Self
-    where
-        'b: 'a,
-    {
+    pub fn new<'b: 'a>(graph_ref: GraphRef<NodeType>, subgraph: Subgraph<'b, NodeBase>) -> Self {
         Self {
             graph_ref,
             subgraph,
@@ -85,9 +81,10 @@ impl<'a, NodeBase, NodeType> LiveGraphRef<'a, NodeBase, NodeType> {
 }
 
 impl<'a, BaseType, T> LiveGraphRef<'a, BaseType, T> {
-    pub fn borrow<'b>(&self) -> Result<T::LiveType>
+    pub fn borrow<'b>(&self) -> Result<T::LiveType<'b>>
     where
-        T: NodeType<'a, 'b, BaseType>,
+        T: NodeType<BaseType>,
+        'a: 'b,
     {
         let subgraph = self.get_subgraph()?;
         let node_base: &BaseType = subgraph.node();

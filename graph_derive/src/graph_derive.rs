@@ -5,6 +5,8 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use syn::{fold::Fold, parse_macro_input, visit::Visit};
 
+use itertools::Itertools;
+
 struct CollectDetails {
     ident_lookup: HashMap<syn::Ident, syn::ItemEnum>,
     direct_references: HashMap<syn::ItemEnum, HashSet<syn::ItemEnum>>,
@@ -207,7 +209,10 @@ fn collect_annotated_enums(
     }
 }
 
-fn generate_storage_enum(item_enum: syn::ItemEnum, recursive: &Vec<syn::Path>) -> syn::Item {
+fn generate_storage_enum(
+    item_enum: &syn::ItemEnum,
+    recursive: &Vec<syn::Path>,
+) -> impl Iterator<Item = syn::Item> {
     struct Mutator {
         paths: HashSet<syn::Path>,
     }
@@ -223,14 +228,20 @@ fn generate_storage_enum(item_enum: syn::ItemEnum, recursive: &Vec<syn::Path>) -
         }
     }
 
-    Mutator {
-        paths: recursive.iter().cloned().collect(),
-    }
-    .fold_item_enum(item_enum)
-    .into()
+    let item_enum = item_enum.clone();
+    std::iter::once(
+        Mutator {
+            paths: recursive.iter().cloned().collect(),
+        }
+        .fold_item_enum(item_enum)
+        .into(),
+    )
 }
 
-fn generate_live_enum(item_enum: syn::ItemEnum, recursive: &Vec<syn::Path>) -> syn::Item {
+fn generate_live_enum(
+    item_enum: &syn::ItemEnum,
+    recursive: &Vec<syn::Path>,
+) -> impl Iterator<Item = syn::Item> {
     struct Mutator {
         paths: HashSet<syn::Path>,
     }
@@ -257,14 +268,21 @@ fn generate_live_enum(item_enum: syn::ItemEnum, recursive: &Vec<syn::Path>) -> s
         }
     }
 
-    Mutator {
-        paths: recursive.iter().cloned().collect(),
-    }
-    .fold_item_enum(item_enum)
-    .into()
+    let item_enum = item_enum.clone();
+    std::iter::once(
+        Mutator {
+            paths: recursive.iter().cloned().collect(),
+        }
+        .fold_item_enum(item_enum)
+        .into(),
+    )
 }
 
-fn generate_selector_enum(mut item: syn::ItemEnum, recursive: &Vec<syn::Path>) -> syn::Item {
+fn generate_selector_enum(
+    item: &syn::ItemEnum,
+    recursive: &Vec<syn::Path>,
+) -> impl Iterator<Item = syn::Item> {
+    let mut item = item.clone();
     item.variants = recursive
         .iter()
         .map(|path: &syn::Path| -> syn::Variant {
@@ -274,7 +292,7 @@ fn generate_selector_enum(mut item: syn::ItemEnum, recursive: &Vec<syn::Path>) -
             .unwrap()
         })
         .collect();
-    item.into()
+    std::iter::once(item.into())
 }
 
 #[proc_macro_attribute]
@@ -289,6 +307,24 @@ pub fn derive_enum_types(
     let annotated = AnnotateEnums::new(indirect_references).fold_item_mod(orig);
 
     annotated.to_token_stream().into()
+}
+
+fn apply_generator<'a, G, I>(
+    enums: &'a Vec<(syn::ItemEnum, Vec<syn::Path>)>,
+    dest_module: &str,
+    mut generator: G,
+) -> impl Iterator<Item = (String, syn::Item)> + 'a
+where
+    G: FnMut(&syn::ItemEnum, &Vec<syn::Path>) -> I,
+    G: 'static,
+    I: Iterator<Item = syn::Item>,
+{
+    let dest_module: String = dest_module.into();
+    enums
+        .iter()
+        .map(move |(e, p)| generator(e, p))
+        .flatten()
+        .map(move |item| (dest_module.clone(), item))
 }
 
 #[proc_macro_attribute]
@@ -307,39 +343,33 @@ pub fn apply_enum_types(
         })
         .collect();
 
-    let make_updated_module =
-        |name: &str,
-         updater: &mut dyn FnMut(syn::ItemEnum, &Vec<syn::Path>) -> syn::Item|
-         -> syn::ItemMod {
+    let modules: Vec<_> = std::iter::empty::<(String, syn::Item)>()
+        .chain(apply_generator(&enums, "storage", generate_storage_enum))
+        .chain(apply_generator(&enums, "live", generate_live_enum))
+        .chain(apply_generator(&enums, "selector", generate_selector_enum))
+        .into_group_map()
+        .into_iter()
+        .map(|(name, items)| {
             let mut item_mod = orig_mod.clone();
             item_mod.ident = format_ident!("{}", name);
-            if !enums.is_empty() {
-                let old_content = item_mod
+            if !items.is_empty() {
+                let content = item_mod
                     .content
                     .map(|(_brace, vec)| vec.into_iter())
                     .into_iter()
-                    .flatten();
-                let new_content = enums
-                    .iter()
-                    .map(|(item_enum, recursive)| updater(item_enum.clone(), recursive))
-                    .map(|item_enum| -> syn::Item { item_enum.into() });
-                item_mod.content = Some((
-                    syn::token::Brace::default(),
-                    old_content.chain(new_content).collect(),
-                ));
+                    .flatten()
+                    .chain(items.into_iter())
+                    .collect();
+
+                item_mod.content = Some((syn::token::Brace::default(), content));
             }
             item_mod
-        };
-
-    let storage_mod = make_updated_module("storage", &mut generate_storage_enum);
-    let live_mod = make_updated_module("live", &mut generate_live_enum);
-    let selector_mod = make_updated_module("selector", &mut generate_selector_enum);
+        })
+        .collect();
 
     quote! {
         mod temp{
-            #storage_mod
-            #live_mod
-            #selector_mod
+            #(#modules)*
         }
     }
     .into()

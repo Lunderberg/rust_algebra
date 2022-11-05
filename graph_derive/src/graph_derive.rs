@@ -153,7 +153,7 @@ impl Fold for AnnotateEnums {
 
 fn collect_annotated_enums(
     mut item_mod: syn::ItemMod,
-) -> (syn::ItemMod, Vec<(syn::ItemEnum, Vec<syn::Path>)>) {
+) -> (syn::ItemMod, Vec<(syn::ItemEnum, Vec<syn::ItemEnum>)>) {
     if let Some((brace, content)) = item_mod.content {
         let (enums, other): (Vec<_>, Vec<_>) = content.into_iter().partition(|item| match item {
             syn::Item::Enum(item) => item
@@ -163,7 +163,7 @@ fn collect_annotated_enums(
             _ => false,
         });
 
-        let enums = enums
+        let enums: Vec<syn::ItemEnum> = enums
             .into_iter()
             .map(|item: syn::Item| -> syn::ItemEnum {
                 if let syn::Item::Enum(item_enum) = item {
@@ -172,8 +172,12 @@ fn collect_annotated_enums(
                     panic!("List should only contain enums at this point")
                 }
             })
+            .collect();
+
+        let enums: Vec<(syn::ItemEnum, Vec<syn::Ident>)> = enums
+            .into_iter()
             .map(|mut item| {
-                let paths: Vec<syn::Path> = item
+                let referred: Vec<syn::Ident> = item
                     .attrs
                     .iter()
                     .filter(|attr| is_attr(&attr.path, "requires_graph_storage_type"))
@@ -184,10 +188,13 @@ fn collect_annotated_enums(
                         }
                         .nested
                         .into_iter()
-                        .map(|meta| match meta {
-                            syn::NestedMeta::Meta(syn::Meta::Path(path)) => path,
-                            _ => panic!("Incorrect graph storage format"),
+                        .map(|meta| -> syn::Path {
+                            match meta {
+                                syn::NestedMeta::Meta(syn::Meta::Path(path)) => path,
+                                _ => panic!("Incorrect graph storage format"),
+                            }
                         })
+                        .map(|path| -> syn::Ident { path.segments.last().unwrap().ident.clone() })
                     })
                     .flatten()
                     .collect();
@@ -197,7 +204,23 @@ fn collect_annotated_enums(
                     .into_iter()
                     .filter(|attr| !is_attr(&attr.path, "requires_graph_storage_type"))
                     .collect();
-                (item, paths)
+                (item, referred)
+            })
+            .collect();
+
+        let lookup: HashMap<syn::Ident, syn::ItemEnum> = enums
+            .iter()
+            .map(|(item_enum, _)| (item_enum.ident.clone(), item_enum.clone()))
+            .collect();
+
+        let enums: Vec<(syn::ItemEnum, Vec<syn::ItemEnum>)> = enums
+            .into_iter()
+            .map(|(item_enum, idents)| {
+                let referenced = idents
+                    .into_iter()
+                    .map(|ident| lookup.get(&ident).expect("Ident not in map").clone())
+                    .collect();
+                (item_enum, referenced)
             })
             .collect();
 
@@ -211,16 +234,17 @@ fn collect_annotated_enums(
 
 fn generate_storage_enum(
     item_enum: &syn::ItemEnum,
-    recursive: &Vec<syn::Path>,
+    referenced: &Vec<syn::ItemEnum>,
 ) -> impl Iterator<Item = syn::Item> {
     struct Mutator {
-        paths: HashSet<syn::Path>,
+        referenced: HashSet<syn::Ident>,
     }
 
     impl Fold for Mutator {
         fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
             if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
-                if self.paths.contains(path) {
+                let ident = &path.segments.last().unwrap().ident;
+                if self.referenced.contains(&ident) {
                     return syn::parse2(quote! { GraphRef<#path> }).unwrap();
                 }
             }
@@ -231,7 +255,10 @@ fn generate_storage_enum(
     let item_enum = item_enum.clone();
     std::iter::once(
         Mutator {
-            paths: recursive.iter().cloned().collect(),
+            referenced: referenced
+                .iter()
+                .map(|item_enum| item_enum.ident.clone())
+                .collect(),
         }
         .fold_item_enum(item_enum)
         .into(),
@@ -240,10 +267,10 @@ fn generate_storage_enum(
 
 fn generate_live_enum(
     item_enum: &syn::ItemEnum,
-    recursive: &Vec<syn::Path>,
+    referenced: &Vec<syn::ItemEnum>,
 ) -> impl Iterator<Item = syn::Item> {
     struct Mutator {
-        paths: HashSet<syn::Path>,
+        referenced: HashSet<syn::Ident>,
     }
 
     impl Fold for Mutator {
@@ -257,7 +284,8 @@ fn generate_live_enum(
 
         fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
             if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
-                if self.paths.contains(path) {
+                let ident = &path.segments.last().unwrap().ident;
+                if self.referenced.contains(&ident) {
                     return syn::parse2(
                         quote! { LiveGraphRef<'a, Selector, super::storage::#path> },
                     )
@@ -271,7 +299,10 @@ fn generate_live_enum(
     let item_enum = item_enum.clone();
     std::iter::once(
         Mutator {
-            paths: recursive.iter().cloned().collect(),
+            referenced: referenced
+                .iter()
+                .map(|item_enum| item_enum.ident.clone())
+                .collect(),
         }
         .fold_item_enum(item_enum)
         .into(),
@@ -280,14 +311,15 @@ fn generate_live_enum(
 
 fn generate_selector_enum(
     item: &syn::ItemEnum,
-    recursive: &Vec<syn::Path>,
+    referenced_enums: &Vec<syn::ItemEnum>,
 ) -> impl Iterator<Item = syn::Item> {
     let mut item = item.clone();
-    item.variants = recursive
+    item.variants = referenced_enums
         .iter()
-        .map(|path: &syn::Path| -> syn::Variant {
+        .map(|referred_enum: &syn::ItemEnum| -> syn::Variant {
+            let ident = &referred_enum.ident;
             syn::parse2::<syn::Variant>(quote! {
-                #path(super::storage::#path)
+                #ident(super::storage::#ident)
             })
             .unwrap()
         })
@@ -310,12 +342,12 @@ pub fn derive_enum_types(
 }
 
 fn apply_generator<'a, G, I>(
-    enums: &'a Vec<(syn::ItemEnum, Vec<syn::Path>)>,
+    enums: &'a Vec<(syn::ItemEnum, Vec<syn::ItemEnum>)>,
     dest_module: &str,
     mut generator: G,
 ) -> impl Iterator<Item = (String, syn::Item)> + 'a
 where
-    G: FnMut(&syn::ItemEnum, &Vec<syn::Path>) -> I,
+    G: FnMut(&syn::ItemEnum, &Vec<syn::ItemEnum>) -> I,
     G: 'static,
     I: Iterator<Item = syn::Item>,
 {

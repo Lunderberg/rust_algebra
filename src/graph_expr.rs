@@ -4,9 +4,10 @@
 use crate::graph::{GraphRef, LiveGraphRef, NodeType, Subgraph};
 use crate::Error;
 
-use graph_derive::recursive_graph;
+use graph_derive::{derive_enum_types, recursive_graph};
 
-#[recursive_graph]
+// #[recursive_graph]
+#[derive_enum_types]
 mod temp {
     use crate::graph::{GraphRef, LiveGraphRef, NodeType, Subgraph};
 
@@ -24,27 +25,34 @@ mod temp {
     // If no such storage type exists, should raise compile-time
     // error.
     //
-    // (2): A Storage{name} that is stored in the Vec<Item> node.
-    // This is the in-memory representation, which currently gets
-    // the unmodified name of the object.
+    // (2): A storage::{name} that is stored in the Vec<Item> node.
+    // This is the in-memory representation, with all recursive
+    // references replaced by GraphRef..
     //
-    // (3): A Live{name} that is used when iterating.  This has
-    // the same structure has the Storage{name}, but contains
+    // (3): A live::{name} that is used when iterating.  This has
+    // the same structure has the storage::{name}, but contains
     // LiveGraphRef instead of GraphRef.
-    enum Expr {
-        IntExpr(IntExpr),
-        FloatExpr(FloatExpr),
-        BoolExpr(BoolExpr),
-    }
+    //
+    // (4): A selector::{name} that is used to store all possible
+    // storage::* types inside a single vector.  It contains all
+    // recursive types that are directly or indirectly reachable from
+    // {name}.
 
-    enum Basic<T> {
-        Literal(T),
-        Add(Basic<T>, Basic<T>),
-        Sub(Basic<T>, Basic<T>),
-    }
+    // TODO
+    // enum Basic<T> {
+    //     Literal(T),
+    //     Add(Basic<T>, Basic<T>),
+    //     Sub(Basic<T>, Basic<T>),
+    // }
+
+    // enum IndirectTest {
+    //     Int(i64),
+    //     Recursive(IndirectTest),
+    // }
 
     enum IntExpr {
         Int(i64),
+        //Indirect(IndirectTest),
         Add(IntExpr, IntExpr),
         Sub(IntExpr, IntExpr),
     }

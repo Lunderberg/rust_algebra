@@ -14,4 +14,4 @@ itertools = "*"
 proc-macro2 = "*"
 quote = "*"
 
-syn = {version = "*", features = ["full","extra-traits", "fold"]}
+syn = {version = "*", features = ["full","extra-traits", "fold", "visit"]}

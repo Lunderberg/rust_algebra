@@ -88,10 +88,10 @@ mod test {
     fn test_graph_build_macro() -> Result<(), Error> {
         use graph_derive::graph_build;
 
-        let expr_macro = graph_build![IntExpr::Sub(
+        let expr_macro: Graph<expr::selector::IntExpr> = graph_build![IntExpr::Sub(
             IntExpr::Add(IntExpr::Int(5), IntExpr::Int(15)),
             IntExpr::Int(10)
-        )];
+        )]?;
 
         let expr_explicit = Graph::new(vec![
             IntSelector::IntExpr(IntExpr::Int(5)),

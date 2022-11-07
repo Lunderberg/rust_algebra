@@ -54,10 +54,9 @@ fn process_call(mut call: syn::ExprCall, elements: &mut Vec<syn::Expr>) {
         })
         .collect();
 
-    // TODO: Use the appropriate selector for the storage type.
     elements.push(
         syn::parse2(quote! {
-            IntSelector::IntExpr(#call)
+            (#call).into()
         })
         .unwrap(),
     );

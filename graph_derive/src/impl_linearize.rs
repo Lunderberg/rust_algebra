@@ -311,6 +311,27 @@ fn generate_selector_trait_impl(
     std::iter::once(syn::parse2(stream).expect("Error parsing generated selector trait"))
 }
 
+fn generate_selector_from_storage_impl<'a>(
+    item: &'a syn::ItemEnum,
+    referenced_enums: &'a Vec<syn::ItemEnum>,
+) -> impl Iterator<Item = syn::Item> + 'a {
+    let name = &item.ident;
+
+    referenced_enums.iter().map(move |referenced_enum| {
+        let ref_ident = &referenced_enum.ident;
+
+        let stream = quote! {
+            impl From<super::storage::#ref_ident> for #name {
+                fn from(val: super::storage::#ref_ident) -> Self {
+                    Self::#ref_ident(val)
+                }
+            }
+        };
+
+        syn::parse2(stream).unwrap()
+    })
+}
+
 fn generate_live_selector_enum(
     item: &syn::ItemEnum,
     recursive: &Vec<syn::ItemEnum>,
@@ -385,6 +406,11 @@ pub fn linearize_recursive_enums(
             &enums,
             "selector",
             generate_selector_trait_impl,
+        ))
+        .chain(apply_generator(
+            &enums,
+            "selector",
+            generate_selector_from_storage_impl,
         ))
         .into_group_map()
         .into_iter()

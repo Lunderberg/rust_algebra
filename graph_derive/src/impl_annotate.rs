@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
@@ -30,16 +31,44 @@ fn make_attr(name: &str, tokens: TokenStream) -> syn::Attribute {
     }
 }
 
+struct OrderedHash<T: Hash + Eq> {
+    items: Vec<T>,
+    lookup: HashSet<T>,
+}
+
+impl<T: Hash + Eq> OrderedHash<T> {
+    fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            lookup: HashSet::new(),
+        }
+    }
+
+    fn insert(&mut self, elem: T)
+    where
+        T: Clone,
+    {
+        if !self.lookup.contains(&elem) {
+            self.items.push(elem.clone());
+            self.lookup.insert(elem);
+        }
+    }
+
+    fn contains(&self, elem: &T) -> bool {
+        self.lookup.contains(elem)
+    }
+}
+
 struct CollectDetails {
     ident_lookup: HashMap<syn::Ident, syn::ItemEnum>,
-    direct_references: HashMap<syn::ItemEnum, HashSet<syn::ItemEnum>>,
-    current: Option<HashSet<syn::ItemEnum>>,
+    direct_references: HashMap<syn::ItemEnum, OrderedHash<syn::ItemEnum>>,
+    current: Option<OrderedHash<syn::ItemEnum>>,
 }
 
 impl<'ast> Visit<'ast> for CollectDetails {
     fn visit_item_enum(&mut self, i: &'ast syn::ItemEnum) {
         assert!(self.current.is_none(), "Nested enum definition");
-        self.current = Some(HashSet::new());
+        self.current = Some(OrderedHash::new());
         syn::visit::visit_item_enum(self, i);
         self.direct_references
             .insert(i.clone(), self.current.take().unwrap());
@@ -67,7 +96,7 @@ impl CollectDetails {
 
     fn collect_direct_references(
         item_mod: &syn::ItemMod,
-    ) -> HashMap<syn::ItemEnum, HashSet<syn::ItemEnum>> {
+    ) -> HashMap<syn::ItemEnum, Vec<syn::ItemEnum>> {
         let item_enums: Vec<syn::ItemEnum> = item_mod
             .content
             .as_ref()
@@ -93,46 +122,54 @@ impl CollectDetails {
         };
         visitor.visit_item_mod(item_mod);
 
-        visitor.direct_references
+        visitor
+            .direct_references
+            .into_iter()
+            .map(|(item_enum, ordered_hash)| (item_enum, ordered_hash.items))
+            .collect()
     }
     fn collect_indirect_references(
         item_mod: &syn::ItemMod,
-    ) -> HashMap<syn::ItemEnum, HashSet<syn::ItemEnum>> {
+    ) -> HashMap<syn::ItemEnum, Vec<syn::ItemEnum>> {
         let direct_references = Self::collect_direct_references(item_mod);
 
-        let indirect_references: HashMap<syn::ItemEnum, HashSet<syn::ItemEnum>> = direct_references
-            .iter()
-            .map(|(from, _)| {
-                let mut reachable = HashSet::new();
-                let mut to_visit = vec![from];
-                while !to_visit.is_empty() {
-                    let visiting = to_visit.pop().unwrap();
-                    direct_references
-                        .get(&visiting)
-                        .unwrap()
-                        .iter()
-                        .filter(|indirect| !reachable.contains(*indirect))
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .for_each(|indirect| {
-                            reachable.insert(indirect.clone());
-                            to_visit.push(indirect);
-                        });
-                }
-                (from.clone(), reachable)
-            })
-            .collect();
+        let indirect_references: HashMap<syn::ItemEnum, OrderedHash<syn::ItemEnum>> =
+            direct_references
+                .iter()
+                .map(|(from, _)| {
+                    let mut reachable = OrderedHash::new();
+                    let mut to_visit = vec![from];
+                    while !to_visit.is_empty() {
+                        let visiting = to_visit.pop().unwrap();
+                        direct_references
+                            .get(&visiting)
+                            .unwrap()
+                            .iter()
+                            .filter(|indirect| !reachable.contains(*indirect))
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .for_each(|indirect| {
+                                reachable.insert(indirect.clone());
+                                to_visit.push(indirect);
+                            });
+                    }
+                    (from.clone(), reachable)
+                })
+                .collect();
 
         indirect_references
+            .into_iter()
+            .map(|(item_enum, ordered_hash)| (item_enum, ordered_hash.items))
+            .collect()
     }
 }
 
 struct AnnotateEnums {
-    indirect_references: HashMap<syn::ItemEnum, HashSet<syn::ItemEnum>>,
+    indirect_references: HashMap<syn::ItemEnum, Vec<syn::ItemEnum>>,
 }
 
 impl AnnotateEnums {
-    fn new(indirect_references: HashMap<syn::ItemEnum, HashSet<syn::ItemEnum>>) -> Self {
+    fn new(indirect_references: HashMap<syn::ItemEnum, Vec<syn::ItemEnum>>) -> Self {
         Self {
             indirect_references,
         }

@@ -1,4 +1,5 @@
 mod impl_annotate;
+mod impl_builder;
 mod impl_linearize;
 
 #[proc_macro_attribute]
@@ -25,4 +26,9 @@ pub fn recursive_graph(
     let item = annotate_recursive_enum_types(proc_macro::TokenStream::new(), item);
     let item = linearize_recursive_enum_types(proc_macro::TokenStream::new(), item);
     item
+}
+
+#[proc_macro]
+pub fn graph_build(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    impl_builder::graph_build(item)
 }

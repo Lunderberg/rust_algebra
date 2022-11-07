@@ -85,6 +85,28 @@ mod test {
     use crate::Error;
     use crate::Graph;
 
+    fn test_graph_build_macro() -> Result<(), Error> {
+        use graph_derive::graph_build;
+
+        let expr_macro = graph_build![IntExpr::Sub(
+            IntExpr::Add(IntExpr::Int(5), IntExpr::Int(15)),
+            IntExpr::Int(10)
+        )];
+
+        let expr_explicit = Graph::new(vec![
+            IntSelector::IntExpr(IntExpr::Int(5)),
+            IntSelector::IntExpr(IntExpr::Int(15)),
+            IntSelector::IntExpr(IntExpr::Add(2.into(), 1.into())),
+            IntSelector::IntExpr(IntExpr::Int(10)),
+            IntSelector::IntExpr(IntExpr::Sub(2.into(), 1.into())),
+        ])?;
+
+        // TODO: Actually perform a test here.  Will need a comparison
+        // of storage contents.
+
+        Ok(())
+    }
+
     #[test]
     fn test_basic() -> Result<(), Error> {
         // let expr: Graph<Expr> = Graph::new(Expr::Sub(

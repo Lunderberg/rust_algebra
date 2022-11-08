@@ -184,11 +184,14 @@ where
             })
             .collect();
 
+        let str_referenced_name = format!("{referenced_name}");
+
         let stream = quote! {
             impl NodeType<super::selector::#selector> for #referenced_name {
-                type LiveType<'a> = super::live::#referenced_name<'a, super::selector::#selector>;
+                type LiveType<'a> =
+                    super::live::#referenced_name<'a, super::selector::#selector>;
 
-                const NAME: &'static str = "#referenced_name";
+                const NAME: &'static str = #str_referenced_name;
 
                 fn from_base(base: &super::selector::#selector) -> Option<&Self> {
                     match base {

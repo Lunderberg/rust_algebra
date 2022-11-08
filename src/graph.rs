@@ -95,7 +95,7 @@ impl<'a, Selector: NodeTypeSelector, T> LiveGraphRef<'a, Selector, T> {
         let node_base: &Selector = subgraph.node();
         let node: &T = NodeType::from_base(node_base).ok_or_else(|| Error::IncorrectType {
             expected: T::NAME.to_string(),
-            actual: "???".to_string(),
+            actual: node_base.type_name().to_string(),
         })?;
         Ok(node.to_live_type(subgraph.clone()))
     }

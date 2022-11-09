@@ -11,8 +11,12 @@ pub trait NodeTypeSelector: Sized {
     fn to_live_type<'a>(&self, subgraph: Subgraph<'a, Self>) -> Self::LiveType<'a>;
 }
 
-pub struct Graph<Selector: NodeTypeSelector> {
+pub struct Graph<Selector: NodeTypeSelector, T: NodeType<Selector>>
+where
+    for<'c> &'c T: TryFrom<&'c Selector, Error = Error>,
+{
     items: Vec<Selector>,
+    _top_level: PhantomData<T>,
 }
 
 pub struct Subgraph<'a, Selector: NodeTypeSelector> {
@@ -47,17 +51,23 @@ impl<'a, Selector: NodeTypeSelector> Subgraph<'a, Selector> {
     }
 }
 
-impl<NodeBase: NodeTypeSelector> Graph<NodeBase> {
-    #[allow(dead_code)]
-    pub fn new(items: Vec<NodeBase>) -> Result<Self> {
+impl<Selector: NodeTypeSelector, T: NodeType<Selector>> Graph<Selector, T>
+where
+    for<'c> &'c T: TryFrom<&'c Selector, Error = Error>,
+{
+    pub fn new(items: Vec<Selector>) -> Result<Self> {
         (!items.is_empty())
-            .then(|| Self { items })
+            .then(|| Self {
+                items,
+                _top_level: PhantomData,
+            })
             .ok_or(Error::EmptyExpression)
     }
 
-    #[allow(dead_code)]
-    pub fn root<'a, 'b: 'a>(&'b self) -> NodeBase::LiveType<'a> {
-        self.items.last().unwrap().to_live_type(self.into())
+    pub fn borrow<'a, 'b: 'a>(&'b self) -> Result<T::LiveType<'a>> {
+        let selector: &Selector = self.items.last().unwrap();
+        let node: &T = selector.try_into()?;
+        Ok(node.to_live_type(self.into()))
     }
 }
 
@@ -87,10 +97,9 @@ impl<'a, Selector: NodeTypeSelector, NodeType> LiveGraphRef<'a, Selector, NodeTy
     }
 }
 
-impl<'a, Selector: NodeTypeSelector, T> LiveGraphRef<'a, Selector, T>
+impl<'a, Selector: NodeTypeSelector, T: NodeType<Selector>> LiveGraphRef<'a, Selector, T>
 where
     for<'c> &'c T: TryFrom<&'c Selector, Error = Error>,
-    T: NodeType<Selector>,
 {
     pub fn borrow<'b>(&self) -> Result<T::LiveType<'b>>
     where
@@ -139,11 +148,13 @@ impl<NodeType> From<usize> for GraphRef<NodeType> {
     }
 }
 
-impl<'a, 'b, NodeBase: NodeTypeSelector> From<&'a Graph<NodeBase>> for Subgraph<'b, NodeBase>
+impl<'a, 'b, Selector: NodeTypeSelector, T: NodeType<Selector>> From<&'a Graph<Selector, T>>
+    for Subgraph<'b, Selector>
 where
     'a: 'b,
+    for<'c> &'c T: TryFrom<&'c Selector, Error = Error>,
 {
-    fn from(g: &'a Graph<NodeBase>) -> Self {
+    fn from(g: &'a Graph<Selector, T>) -> Self {
         Self { items: &g.items }
     }
 }

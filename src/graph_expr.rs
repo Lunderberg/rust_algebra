@@ -75,7 +75,6 @@ mod expr {
 }
 
 use expr::live::IntExpr as LiveIntExpr;
-use expr::live_selector::BoolExpr as LiveExpr;
 use expr::selector::BoolExpr as IntSelector;
 use expr::storage::{BoolExpr, FloatExpr, IntExpr};
 
@@ -88,18 +87,20 @@ mod test {
     fn test_graph_build_macro() -> Result<(), Error> {
         use graph_derive::graph_build;
 
-        let expr_macro: Graph<expr::selector::IntExpr> = graph_build![IntExpr::Sub(
-            IntExpr::Add(IntExpr::Int(5), IntExpr::Int(15)),
-            IntExpr::Int(10)
-        )]?;
+        let _expr_macro: Graph<expr::selector::IntExpr, expr::storage::IntExpr> =
+            graph_build![IntExpr::Sub(
+                IntExpr::Add(IntExpr::Int(5), IntExpr::Int(15)),
+                IntExpr::Int(10)
+            )]?;
 
-        let expr_explicit = Graph::new(vec![
-            IntSelector::IntExpr(IntExpr::Int(5)),
-            IntSelector::IntExpr(IntExpr::Int(15)),
-            IntSelector::IntExpr(IntExpr::Add(2.into(), 1.into())),
-            IntSelector::IntExpr(IntExpr::Int(10)),
-            IntSelector::IntExpr(IntExpr::Sub(2.into(), 1.into())),
-        ])?;
+        let _expr_explicit: Graph<expr::selector::BoolExpr, expr::storage::IntExpr> =
+            Graph::new(vec![
+                IntSelector::IntExpr(IntExpr::Int(5)),
+                IntSelector::IntExpr(IntExpr::Int(15)),
+                IntSelector::IntExpr(IntExpr::Add(2.into(), 1.into())),
+                IntSelector::IntExpr(IntExpr::Int(10)),
+                IntSelector::IntExpr(IntExpr::Sub(2.into(), 1.into())),
+            ])?;
 
         // TODO: Actually perform a test here.  Will need a comparison
         // of storage contents.
@@ -113,7 +114,7 @@ mod test {
         //     Expr::Add(Expr::Int(5), Expr::Int(15)),
         //     Expr::Int(10),
         // ));
-        let expr = Graph::new(vec![
+        let expr: Graph<expr::selector::BoolExpr, expr::storage::IntExpr> = Graph::new(vec![
             IntSelector::IntExpr(IntExpr::Int(5)),
             IntSelector::IntExpr(IntExpr::Int(15)),
             IntSelector::IntExpr(IntExpr::Add(2.into(), 1.into())),
@@ -121,32 +122,22 @@ mod test {
             IntSelector::IntExpr(IntExpr::Sub(2.into(), 1.into())),
         ])?;
 
-        let root = expr.root();
+        let root = expr.borrow()?;
 
+        println!("Found int expression, {root:?}");
         match root {
-            LiveExpr::IntExpr(i) => {
-                println!("Found int expression, {i:?}");
-                match i {
-                    LiveIntExpr::Int(a) => {
-                        println!("IntLiteral {a:?}")
-                    }
-                    LiveIntExpr::Add(a, b) => {
-                        println!("Addition of {a:?} and {b:?}")
-                    }
-                    LiveIntExpr::Sub(a, b) => {
-                        println!(
-                            "Subtraction of {a:?} and {b:?}, which are {:?} and {:?}",
-                            a.borrow()?,
-                            b.borrow()?
-                        )
-                    }
-                }
+            LiveIntExpr::Int(a) => {
+                println!("IntLiteral {a:?}")
             }
-            LiveExpr::FloatExpr(_f) => {
-                println!("Found float expression");
+            LiveIntExpr::Add(a, b) => {
+                println!("Addition of {a:?} and {b:?}")
             }
-            LiveExpr::BoolExpr(_b) => {
-                println!("Found bool expression");
+            LiveIntExpr::Sub(a, b) => {
+                println!(
+                    "Subtraction of {a:?} and {b:?}, which are {:?} and {:?}",
+                    a.borrow()?,
+                    b.borrow()?
+                )
             }
         }
 

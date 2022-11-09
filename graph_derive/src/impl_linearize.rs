@@ -187,20 +187,16 @@ where
         let str_referenced_name = format!("{referenced_name}");
 
         let stream = quote! {
-            impl NodeType<super::selector::#selector> for #referenced_name {
+            impl NodeType<super::selector::#selector> for #referenced_name
+            where
+                for<'c> &'c Self : TryFrom<&'c super::selector::#selector>
+            {
                 type LiveType<'a> =
                     super::live::#referenced_name<'a, super::selector::#selector>;
 
                 const NAME: &'static str = #str_referenced_name;
 
-                fn from_base(base: &super::selector::#selector) -> Option<&Self> {
-                    match base {
-                        super::selector::#selector::#referenced_name(e) => Some(e),
-                        _ => None,
-                    }
-                }
-
-                fn to_live_type<'a, 'b: 'a>(&self, subgraph: Subgraph<'b, super::selector::#selector>) -> Self::LiveType<'a> {
+                fn to_live_type<'a>(&self, subgraph: Subgraph<'a, super::selector::#selector>) -> Self::LiveType<'a> {
                     match self {
                         #(#live_type_arms)*
                     }
@@ -209,6 +205,35 @@ where
         };
         syn::parse2(stream)
             .expect("Error parsing generated storage trait")
+    })
+}
+
+fn generate_storage_try_from_selector_impl<'a>(
+    item: &'a syn::ItemEnum,
+    referenced_enums: &'a Vec<syn::ItemEnum>,
+) -> impl Iterator<Item = syn::Item> + 'a {
+    let selector = &item.ident;
+    referenced_enums.iter().map(move |item_enum| {
+        let storage = &item_enum.ident;
+
+        let stream = quote! {
+            impl<'a,'b:'a> TryFrom<&'b super::selector::#selector> for &'a #storage {
+                type Error = crate::Error;
+
+                fn try_from(val: &'b super::selector::#selector)
+                            -> Result<Self,Self::Error> {
+                    match val {
+                        super::selector::#selector::#storage(e) => Ok(e),
+                        _ => Err(Self::Error::IncorrectType{
+                            expected: <#storage as NodeType<super::selector::#selector>>::NAME.to_string(),
+                            actual: val.type_name().to_string(),
+                        })
+                    }
+                }
+            }
+        };
+
+        syn::parse2(stream).unwrap()
     })
 }
 
@@ -303,7 +328,7 @@ fn generate_selector_trait_impl(
                     }
                 }
 
-                fn to_live_type<'a, 'b: 'a>(&self, subgraph: Subgraph<'b, Self>) -> Self::LiveType<'a> {
+                fn to_live_type<'a>(&self, subgraph: Subgraph<'a, Self>) -> Self::LiveType<'a> {
                     match self {
                         #(Self::#referenced_idents(e) => Self::LiveType::#referenced_idents(e.to_live_type(subgraph)),)*
                     }
@@ -397,6 +422,11 @@ pub fn linearize_recursive_enums(
             &enums,
             "storage",
             generate_storage_trait_impl,
+        ))
+        .chain(apply_generator(
+            &enums,
+            "storage",
+            generate_storage_try_from_selector_impl,
         ))
         .chain(apply_generator(&enums, "live", generate_live_enum))
         .chain(apply_generator(&enums, "selector", generate_selector_enum))

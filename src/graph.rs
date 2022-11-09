@@ -8,7 +8,7 @@ pub trait NodeTypeSelector: Sized {
     where
         Self: 'a;
     fn type_name(&self) -> &'static str;
-    fn to_live_type<'a, 'b: 'a>(&self, subgraph: Subgraph<'b, Self>) -> Self::LiveType<'a>;
+    fn to_live_type<'a>(&self, subgraph: Subgraph<'a, Self>) -> Self::LiveType<'a>;
 }
 
 pub struct Graph<Selector: NodeTypeSelector> {
@@ -30,13 +30,15 @@ pub struct LiveGraphRef<'a, Selector: NodeTypeSelector, NodeType> {
     graph_ref: GraphRef<NodeType>,
 }
 
-pub trait NodeType<Selector: NodeTypeSelector> {
+pub trait NodeType<Selector: NodeTypeSelector>
+where
+    for<'c> &'c Self: TryFrom<&'c Selector>,
+{
     type LiveType<'a>
     where
         Selector: 'a;
     const NAME: &'static str;
-    fn from_base(base: &Selector) -> Option<&Self>;
-    fn to_live_type<'a, 'b: 'a>(&self, subgraph: Subgraph<'b, Selector>) -> Self::LiveType<'a>;
+    fn to_live_type<'a>(&self, subgraph: Subgraph<'a, Selector>) -> Self::LiveType<'a>;
 }
 
 impl<'a, Selector: NodeTypeSelector> Subgraph<'a, Selector> {
@@ -85,19 +87,19 @@ impl<'a, Selector: NodeTypeSelector, NodeType> LiveGraphRef<'a, Selector, NodeTy
     }
 }
 
-impl<'a, Selector: NodeTypeSelector, T> LiveGraphRef<'a, Selector, T> {
+impl<'a, Selector: NodeTypeSelector, T> LiveGraphRef<'a, Selector, T>
+where
+    for<'c> &'c T: TryFrom<&'c Selector, Error = Error>,
+    T: NodeType<Selector>,
+{
     pub fn borrow<'b>(&self) -> Result<T::LiveType<'b>>
     where
-        T: NodeType<Selector>,
         'a: 'b,
     {
         let subgraph = self.get_subgraph()?;
-        let node_base: &Selector = subgraph.node();
-        let node: &T = NodeType::from_base(node_base).ok_or_else(|| Error::IncorrectType {
-            expected: T::NAME.to_string(),
-            actual: node_base.type_name().to_string(),
-        })?;
-        Ok(node.to_live_type(subgraph.clone()))
+        let selector: &Selector = subgraph.node();
+        let node: &T = selector.try_into()?;
+        Ok((*node).to_live_type(subgraph.clone()))
     }
 }
 

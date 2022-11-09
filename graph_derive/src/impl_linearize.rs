@@ -320,17 +320,9 @@ fn generate_selector_trait_impl(
 
     let stream = quote! {
             impl NodeTypeSelector for #name {
-                type LiveType<'a> = super::live_selector::#name<'a, Self>;
-
                 fn type_name(&self) -> &'static str {
                     match self {
                         #(Self::#referenced_idents(_) => #referenced_names,)*
-                    }
-                }
-
-                fn to_live_type<'a>(&self, subgraph: Subgraph<'a, Self>) -> Self::LiveType<'a> {
-                    match self {
-                        #(Self::#referenced_idents(e) => Self::LiveType::#referenced_idents(e.to_live_type(subgraph)),)*
                     }
                 }
             }
@@ -358,31 +350,6 @@ fn generate_selector_from_storage_impl<'a>(
 
         syn::parse2(stream).unwrap()
     })
-}
-
-fn generate_live_selector_enum(
-    item: &syn::ItemEnum,
-    recursive: &Vec<syn::ItemEnum>,
-) -> impl Iterator<Item = syn::Item> {
-    let mut item = item.clone();
-    item.variants = recursive
-        .iter()
-        .map(|item_enum: &syn::ItemEnum| -> syn::Variant {
-            let ident = &item_enum.ident;
-            syn::parse2::<syn::Variant>(quote! {
-                #ident(super::live::#ident<'a, Selector>)
-            })
-            .expect("Error in generated live selector enum")
-        })
-        .collect();
-
-    let prev_generics = item.generics.params;
-    item.generics = syn::parse2(quote! {
-        <'a, Selector: NodeTypeSelector, #prev_generics>
-    })
-    .expect("Error parsing generics of live selector");
-
-    std::iter::once(item.into())
 }
 
 fn apply_generator<'a, G, I>(
@@ -430,11 +397,6 @@ pub fn linearize_recursive_enums(
         ))
         .chain(apply_generator(&enums, "live", generate_live_enum))
         .chain(apply_generator(&enums, "selector", generate_selector_enum))
-        .chain(apply_generator(
-            &enums,
-            "live_selector",
-            generate_live_selector_enum,
-        ))
         .chain(apply_generator(
             &enums,
             "selector",

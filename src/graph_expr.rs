@@ -95,11 +95,11 @@ mod test {
 
         let _expr_explicit: Graph<expr::selector::BoolExpr, expr::storage::IntExpr> =
             Graph::new(vec![
-                IntSelector::IntExpr(IntExpr::Int(5)),
-                IntSelector::IntExpr(IntExpr::Int(15)),
-                IntSelector::IntExpr(IntExpr::Add(2.into(), 1.into())),
-                IntSelector::IntExpr(IntExpr::Int(10)),
-                IntSelector::IntExpr(IntExpr::Sub(2.into(), 1.into())),
+                IntExpr::Int(5).into(),
+                IntExpr::Int(15).into(),
+                IntExpr::Add(2.into(), 1.into()).into(),
+                IntExpr::Int(10).into(),
+                IntExpr::Sub(2.into(), 1.into()).into(),
             ])?;
 
         // TODO: Actually perform a test here.  Will need a comparison
@@ -115,11 +115,11 @@ mod test {
         //     Expr::Int(10),
         // ));
         let expr: Graph<expr::selector::BoolExpr, expr::storage::IntExpr> = Graph::new(vec![
-            IntSelector::IntExpr(IntExpr::Int(5)),
-            IntSelector::IntExpr(IntExpr::Int(15)),
-            IntSelector::IntExpr(IntExpr::Add(2.into(), 1.into())),
-            IntSelector::IntExpr(IntExpr::Int(10)),
-            IntSelector::IntExpr(IntExpr::Sub(2.into(), 1.into())),
+            IntExpr::Int(5).into(),
+            IntExpr::Int(15).into(),
+            IntExpr::Add(2.into(), 1.into()).into(),
+            IntExpr::Int(10).into(),
+            IntExpr::Sub(2.into(), 1.into()).into(),
         ])?;
 
         let root = expr.borrow()?;

@@ -4,11 +4,7 @@ use std::marker::PhantomData;
 use crate::{Error, Result};
 
 pub trait NodeTypeSelector: Sized {
-    type LiveType<'a>
-    where
-        Self: 'a;
     fn type_name(&self) -> &'static str;
-    fn to_live_type<'a>(&self, subgraph: Subgraph<'a, Self>) -> Self::LiveType<'a>;
 }
 
 pub struct Graph<Selector: NodeTypeSelector, T: NodeType<Selector>>

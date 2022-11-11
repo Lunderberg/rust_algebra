@@ -94,11 +94,11 @@ fn generate_storage_enum(
     item_enum: &syn::ItemEnum,
     referenced: &Vec<syn::ItemEnum>,
 ) -> impl Iterator<Item = syn::Item> {
-    struct Mutator {
-        referenced: HashSet<syn::Ident>,
+    struct Mutator<'a> {
+        referenced: HashSet<&'a syn::Ident>,
     }
 
-    impl Fold for Mutator {
+    impl<'a> Fold for Mutator<'a> {
         fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
             if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
                 let ident = &path.segments.last().unwrap().ident;
@@ -111,27 +111,22 @@ fn generate_storage_enum(
         }
     }
 
-    let item_enum = item_enum.clone();
     std::iter::once(
         Mutator {
             referenced: referenced
                 .iter()
-                .map(|item_enum| item_enum.ident.clone())
+                .map(|item_enum| &item_enum.ident)
                 .collect(),
         }
-        .fold_item_enum(item_enum)
+        .fold_item_enum(item_enum.clone())
         .into(),
     )
 }
 
-fn generate_storage_trait_impl<'a, 'b, 'c>(
-    item_enum: &'b syn::ItemEnum,
+fn generate_storage_trait_impl<'a>(
+    item_enum: &'a syn::ItemEnum,
     referenced_enums: &'a Vec<syn::ItemEnum>,
-) -> impl Iterator<Item = syn::Item> + 'c
-where
-    'a: 'c,
-    'b: 'c,
-{
+) -> impl Iterator<Item = syn::Item> + 'a {
     let selector = &item_enum.ident;
 
     let referenced_names: HashSet<syn::Ident> = referenced_enums
@@ -184,17 +179,13 @@ where
             })
             .collect();
 
-        let str_referenced_name = format!("{referenced_name}");
-
         let stream = quote! {
-            impl NodeType<super::selector::#selector> for #referenced_name
+            impl GraphNode<super::selector::#selector> for #referenced_name
             where
                 for<'c> &'c Self : TryFrom<&'c super::selector::#selector>
             {
                 type LiveType<'a> =
                     super::live::#referenced_name<'a, super::selector::#selector>;
-
-                const NAME: &'static str = #str_referenced_name;
 
                 fn to_live_type<'a>(&self, subgraph: Subgraph<'a, super::selector::#selector>) -> Self::LiveType<'a> {
                     match self {
@@ -215,6 +206,7 @@ fn generate_storage_try_from_selector_impl<'a>(
     let selector = &item.ident;
     referenced_enums.iter().map(move |item_enum| {
         let storage = &item_enum.ident;
+        let str_storage = format!("{storage}");
 
         let stream = quote! {
             impl<'a,'b:'a> TryFrom<&'b super::selector::#selector> for &'a #storage {
@@ -225,8 +217,8 @@ fn generate_storage_try_from_selector_impl<'a>(
                     match val {
                         super::selector::#selector::#storage(e) => Ok(e),
                         _ => Err(Self::Error::IncorrectType{
-                            expected: <#storage as NodeType<super::selector::#selector>>::NAME.to_string(),
-                            actual: val.type_name().to_string(),
+                            expected: #str_storage,
+                            actual: val.type_name(),
                         })
                     }
                 }
@@ -241,15 +233,15 @@ fn generate_live_enum(
     item_enum: &syn::ItemEnum,
     referenced: &Vec<syn::ItemEnum>,
 ) -> impl Iterator<Item = syn::Item> {
-    struct Mutator {
-        referenced: HashSet<syn::Ident>,
+    struct Mutator<'a> {
+        referenced: HashSet<&'a syn::Ident>,
     }
 
-    impl Fold for Mutator {
+    impl<'a> Fold for Mutator<'a> {
         fn fold_generics(&mut self, generics: syn::Generics) -> syn::Generics {
             let params = generics.params;
             syn::parse2(quote! {
-                <'a, Selector: NodeTypeSelector, #params>
+                <'a, Selector: GraphNodeSelector, #params>
             })
             .expect("Error parsing generated generics for live enum")
         }
@@ -268,15 +260,14 @@ fn generate_live_enum(
         }
     }
 
-    let item_enum = item_enum.clone();
     std::iter::once(
         Mutator {
             referenced: referenced
                 .iter()
-                .map(|item_enum| item_enum.ident.clone())
+                .map(|item_enum| &item_enum.ident)
                 .collect(),
         }
-        .fold_item_enum(item_enum)
+        .fold_item_enum(item_enum.clone())
         .into(),
     )
 }
@@ -319,7 +310,7 @@ fn generate_selector_trait_impl(
         .collect();
 
     let stream = quote! {
-            impl NodeTypeSelector for #name {
+            impl GraphNodeSelector for #name {
                 fn type_name(&self) -> &'static str {
                     match self {
                         #(Self::#referenced_idents(_) => #referenced_names,)*

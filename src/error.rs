@@ -22,7 +22,10 @@ pub enum Error {
         subgraph_size: usize,
     },
     #[error("Expected type {expected}, but received {actual}")]
-    IncorrectType { expected: String, actual: String },
+    IncorrectType {
+        expected: &'static str,
+        actual: &'static str,
+    },
     #[error("Empty expression")]
     EmptyExpression,
 }

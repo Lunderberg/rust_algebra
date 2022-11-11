@@ -1,14 +1,14 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
-use crate::graph::{GraphRef, LiveGraphRef, NodeType, NodeTypeSelector, Subgraph};
+use crate::graph::{GraphNode, GraphNodeSelector, GraphRef, LiveGraphRef, Subgraph};
 use crate::Error;
 
 use graph_derive::recursive_graph;
 
 #[recursive_graph]
 mod expr {
-    use crate::graph::{GraphRef, LiveGraphRef, NodeType, NodeTypeSelector, Subgraph};
+    use crate::graph::{GraphNode, GraphNodeSelector, GraphRef, LiveGraphRef, Subgraph};
 
     // First one is special, defines the name of all the others.
     // Maybe replace in the future, special handling for
@@ -75,7 +75,6 @@ mod expr {
 }
 
 use expr::live::IntExpr as LiveIntExpr;
-use expr::selector::BoolExpr as IntSelector;
 use expr::storage::{BoolExpr, FloatExpr, IntExpr};
 
 #[cfg(test)]

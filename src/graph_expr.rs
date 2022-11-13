@@ -8,7 +8,9 @@ use graph_derive::recursive_graph;
 
 #[recursive_graph]
 mod expr {
-    use crate::graph::{GraphNode, GraphNodeSelector, GraphRef, LiveGraphRef, Subgraph};
+    use crate::graph::{
+        GraphNode, GraphNodeSelector, GraphRef, LiveGraphNode, LiveGraphRef, Subgraph,
+    };
 
     // First one is special, defines the name of all the others.
     // Maybe replace in the future, special handling for
@@ -86,20 +88,18 @@ mod test {
     fn test_graph_build_macro() -> Result<(), Error> {
         use graph_derive::graph_build;
 
-        let _expr_macro: Graph<expr::selector::IntExpr, expr::storage::IntExpr> =
-            graph_build![IntExpr::Sub(
-                IntExpr::Add(IntExpr::Int(5), IntExpr::Int(15)),
-                IntExpr::Int(10)
-            )]?;
+        let _expr_macro: Graph<expr::selector::IntExpr> = graph_build![IntExpr::Sub(
+            IntExpr::Add(IntExpr::Int(5), IntExpr::Int(15)),
+            IntExpr::Int(10)
+        )]?;
 
-        let _expr_explicit: Graph<expr::selector::BoolExpr, expr::storage::IntExpr> =
-            Graph::new(vec![
-                IntExpr::Int(5).into(),
-                IntExpr::Int(15).into(),
-                IntExpr::Add(2.into(), 1.into()).into(),
-                IntExpr::Int(10).into(),
-                IntExpr::Sub(2.into(), 1.into()).into(),
-            ])?;
+        let _expr_explicit: Graph<expr::selector::BoolExpr> = Graph::new(vec![
+            IntExpr::Int(5).into(),
+            IntExpr::Int(15).into(),
+            IntExpr::Add(2.into(), 1.into()).into(),
+            IntExpr::Int(10).into(),
+            IntExpr::Sub(2.into(), 1.into()).into(),
+        ])?;
 
         // TODO: Actually perform a test here.  Will need a comparison
         // of storage contents.
@@ -113,7 +113,7 @@ mod test {
         //     Expr::Add(Expr::Int(5), Expr::Int(15)),
         //     Expr::Int(10),
         // ));
-        let expr: Graph<expr::selector::BoolExpr, expr::storage::IntExpr> = Graph::new(vec![
+        let expr: Graph<expr::selector::BoolExpr> = Graph::new(vec![
             IntExpr::Int(5).into(),
             IntExpr::Int(15).into(),
             IntExpr::Add(2.into(), 1.into()).into(),

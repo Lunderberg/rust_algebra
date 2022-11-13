@@ -241,7 +241,7 @@ fn generate_live_enum(
         fn fold_generics(&mut self, generics: syn::Generics) -> syn::Generics {
             let params = generics.params;
             syn::parse2(quote! {
-                <'a, Selector: GraphNodeSelector, #params>
+                <'a, Selector, #params>
             })
             .expect("Error parsing generated generics for live enum")
         }
@@ -270,6 +270,24 @@ fn generate_live_enum(
         .fold_item_enum(item_enum.clone())
         .into(),
     )
+}
+
+fn generate_live_enum_trait_impl(
+    item_enum: &syn::ItemEnum,
+    _referenced: &Vec<syn::ItemEnum>,
+) -> impl Iterator<Item = syn::Item> {
+    let ident = &item_enum.ident;
+
+    let stream = quote! {
+        impl<'a, Selector: 'a> LiveGraphNode<'a, Selector> for #ident<'a, Selector>
+        where
+            super::storage::#ident: GraphNode<Selector, LiveType<'a> = Self>,
+        {
+            type StorageType = super::storage::#ident;
+        }
+    };
+
+    std::iter::once(syn::parse2(stream).unwrap())
 }
 
 fn generate_selector_enum(
@@ -387,6 +405,11 @@ pub fn linearize_recursive_enums(
             generate_storage_try_from_selector_impl,
         ))
         .chain(apply_generator(&enums, "live", generate_live_enum))
+        .chain(apply_generator(
+            &enums,
+            "live",
+            generate_live_enum_trait_impl,
+        ))
         .chain(apply_generator(&enums, "selector", generate_selector_enum))
         .chain(apply_generator(
             &enums,

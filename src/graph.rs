@@ -7,9 +7,8 @@ pub trait GraphNodeSelector: Sized {
     fn type_name(&self) -> &'static str;
 }
 
-pub struct Graph<Selector, Node> {
+pub struct Graph<Selector> {
     items: Vec<Selector>,
-    _top_level: PhantomData<Node>,
 }
 
 pub struct Subgraph<'a, Selector> {
@@ -27,6 +26,10 @@ pub struct LiveGraphRef<'a, Selector, NodeType> {
     graph_ref: GraphRef<NodeType>,
 }
 
+pub trait LiveGraphNode<'a, Selector: 'a> {
+    type StorageType: GraphNode<Selector, LiveType<'a> = Self>;
+}
+
 pub trait GraphNode<Selector> {
     type LiveType<'a>
     where
@@ -40,25 +43,48 @@ impl<'a, Selector> Subgraph<'a, Selector> {
     }
 }
 
-impl<Selector, Node> Graph<Selector, Node> {
+impl<Selector> Graph<Selector> {
     pub fn new(items: Vec<Selector>) -> Result<Self> {
         if items.is_empty() {
             Err(Error::EmptyExpression)
         } else {
-            Ok(Self {
-                items,
-                _top_level: PhantomData,
-            })
+            Ok(Self { items })
         }
     }
 }
 
-impl<Selector: GraphNodeSelector, Node: GraphNode<Selector>> Graph<Selector, Node>
+impl<'a, Selector, NodeType> TryFrom<&'a Graph<Selector>> for LiveGraphRef<'a, Selector, NodeType>
 where
-    for<'c> &'c Node: TryFrom<&'c Selector, Error = Error>,
+    NodeType: GraphNode<Selector>,
+    for<'b> &'b NodeType: TryFrom<&'b Selector, Error = Error>,
 {
-    pub fn borrow<'a, 'b: 'a>(&'b self) -> Result<Node::LiveType<'a>> {
-        LiveGraphRef::new(0.into(), self.into()).borrow()
+    type Error = Error;
+
+    fn try_from(value: &'a Graph<Selector>) -> Result<Self> {
+        let selector: &Selector = value.items.last().unwrap();
+        let _node: &NodeType = selector.try_into()?;
+        let subgraph: Subgraph<Selector> = value.into();
+        Ok(Self {
+            subgraph,
+            graph_ref: 0.into(),
+        })
+    }
+}
+
+impl<Selector: GraphNodeSelector> Graph<Selector> {
+    // Intentionally introduce OutLiveType as a deducible parameter,
+    // rather than specifying the return type as
+    // Result<Node::LiveType<'a>>.  Otherwise, the usage of the output
+    // value cannot be used to deduce the return type.
+    pub fn borrow<'a, 'b: 'a, OutLiveType: LiveGraphNode<'a, Selector>>(
+        &'b self,
+    ) -> Result<OutLiveType>
+    where
+        for<'c> &'c OutLiveType::StorageType: TryFrom<&'c Selector, Error = Error>,
+    {
+        let graph_ref: LiveGraphRef<'a, Selector, OutLiveType::StorageType> =
+            LiveGraphRef::new(0.into(), self.into());
+        graph_ref.borrow()
     }
 }
 
@@ -103,7 +129,7 @@ where
     }
 }
 
-impl<'a, Selector: GraphNodeSelector, LiveItem> Debug for LiveGraphRef<'a, Selector, LiveItem> {
+impl<'a, Selector, LiveItem> Debug for LiveGraphRef<'a, Selector, LiveItem> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LiveGraphRef")
             .field("rel_pos", &self.graph_ref.rel_pos)
@@ -139,8 +165,8 @@ impl<NodeType> From<usize> for GraphRef<NodeType> {
     }
 }
 
-impl<'a: 'b, 'b, Selector, Node> From<&'a Graph<Selector, Node>> for Subgraph<'b, Selector> {
-    fn from(g: &'a Graph<Selector, Node>) -> Self {
+impl<'a: 'b, 'b, Selector> From<&'a Graph<Selector>> for Subgraph<'b, Selector> {
+    fn from(g: &'a Graph<Selector>) -> Self {
         Self { items: &g.items }
     }
 }

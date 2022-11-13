@@ -9,6 +9,22 @@ fn is_attr(path: &syn::Path, name: &str) -> bool {
     path.segments.len() == 1 && path.segments[0].ident == name
 }
 
+fn recursive_type_checker(referenced_enums: &Vec<syn::ItemEnum>) -> impl Fn(&syn::Type) -> bool {
+    let referenced_names: HashSet<syn::Ident> = referenced_enums
+        .iter()
+        .map(|item_enum| item_enum.ident.clone())
+        .collect();
+    move |ty: &syn::Type| -> bool {
+        match ty {
+            syn::Type::Path(path) => {
+                let ident = &path.path.segments.last().unwrap().ident;
+                referenced_names.contains(ident)
+            }
+            _ => false,
+        }
+    }
+}
+
 fn collect_annotated_enums(
     mut item_mod: syn::ItemMod,
 ) -> (syn::ItemMod, Vec<(syn::ItemEnum, Vec<syn::ItemEnum>)>) {
@@ -129,19 +145,7 @@ fn generate_storage_trait_impl<'a>(
 ) -> impl Iterator<Item = syn::Item> + 'a {
     let selector = &item_enum.ident;
 
-    let referenced_names: HashSet<syn::Ident> = referenced_enums
-        .iter()
-        .map(|item_enum| item_enum.ident.clone())
-        .collect();
-    let is_recursive_type = move |ty: &syn::Type| -> bool {
-        match ty {
-            syn::Type::Path(path) => {
-                let ident = &path.path.segments.last().unwrap().ident;
-                referenced_names.contains(ident)
-            }
-            _ => false,
-        }
-    };
+    let is_recursive_type = recursive_type_checker(referenced_enums);
 
     referenced_enums.iter().map(move |referenced_enum| {
         let referenced_name = &referenced_enum.ident;
@@ -361,6 +365,122 @@ fn generate_selector_from_storage_impl<'a>(
     })
 }
 
+fn generate_builder_trait<'a>(
+    item_enum: &'a syn::ItemEnum,
+    referenced_enums: &'a Vec<syn::ItemEnum>,
+) -> impl Iterator<Item = syn::Item> + 'a {
+    let ident = &item_enum.ident;
+    let builder = format_ident!("{ident}Builder");
+
+    let is_recursive_type = recursive_type_checker(referenced_enums);
+
+    struct MethodInfo {
+        method_name: syn::Ident,
+        variant_name: syn::Ident,
+        arg_names: Vec<syn::Ident>,
+        arg_types: Vec<syn::Type>,
+        param_exprs: Vec<syn::Expr>,
+    }
+
+    let info: Vec<MethodInfo> = item_enum
+        .variants
+        .iter()
+        .map(|var: &syn::Variant| -> MethodInfo {
+            let variant_name = var.ident.clone();
+            let method_name = format_ident!("{ident}_{variant_name}");
+
+            let (arg_names, arg_types, param_exprs) = var
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(i, field)| -> (syn::Ident, syn::Type, syn::Expr) {
+                    let arg_name = format_ident!("param{i}");
+                    if is_recursive_type(&field.ty) {
+                        let ty = &field.ty;
+                        let ty =
+                            syn::parse2(quote! {GraphBuilderRef<super::storage::#ty>}).unwrap();
+                        let param_expr = syn::parse2(quote! {
+                            self.backref(#arg_name)
+                        })
+                        .unwrap();
+                        (arg_name, ty, param_expr)
+                    } else {
+                        let param_expr = syn::parse2(quote! {
+                            #arg_name
+                        })
+                        .unwrap();
+                        (arg_name, field.ty.clone(), param_expr)
+                    }
+                })
+                .multiunzip();
+
+            MethodInfo {
+                method_name,
+                variant_name,
+                arg_names,
+                arg_types,
+                param_exprs,
+            }
+        })
+        .collect();
+
+    let trait_methods: Vec<syn::TraitItemMethod> = info
+        .iter()
+        .map(|info| {
+            let method_name = &info.method_name;
+            let arg_names = &info.arg_names;
+            let arg_types = &info.arg_types;
+            let stream = quote! {
+                fn #method_name(&mut self, #( #arg_names: #arg_types ),* )
+                                -> GraphBuilderRef<super::storage::#ident>;
+            };
+            syn::parse2(stream).expect("Error parsing generated trait method for builder")
+        })
+        .collect();
+
+    let trait_method_impls: Vec<syn::ImplItemMethod> = info
+        .iter()
+        .map(|info| {
+            let method_name = &info.method_name;
+            let variant_name = &info.variant_name;
+            let arg_names = &info.arg_names;
+            let arg_types = &info.arg_types;
+            let param_exprs = &info.param_exprs;
+            let stream = quote! {
+                fn #method_name(&mut self, #( #arg_names: #arg_types ),* )
+                                -> GraphBuilderRef<super::storage::#ident> {
+                    self.push_top(super::storage::#ident::#variant_name(
+                        #( #param_exprs ),*
+                    ))
+                }
+            };
+            syn::parse2(stream).expect("Error parsing generated trait impl for builder")
+        })
+        .collect();
+
+    let builder_trait = quote! {
+        pub trait #builder {
+            #![allow(non_snake_case)]
+
+            #( #trait_methods )*
+        }
+    };
+
+    let builder_trait_impl = quote! {
+        impl<Selector> #builder for Graph<Selector>
+        where Selector: From<super::storage::#ident>,
+        {
+            #![allow(non_snake_case)]
+
+            #( #trait_method_impls )*
+        }
+    };
+
+    vec![builder_trait, builder_trait_impl]
+        .into_iter()
+        .map(|stream| syn::parse2(stream).expect("Failed to parse generated builder trait/impl"))
+}
+
 fn apply_generator<'a, G, I>(
     enums: &'a Vec<(syn::ItemEnum, Vec<syn::ItemEnum>)>,
     dest_module: &'a str,
@@ -421,6 +541,7 @@ pub fn linearize_recursive_enums(
             "selector",
             generate_selector_from_storage_impl,
         ))
+        .chain(apply_generator(&enums, "builder", generate_builder_trait))
         .into_group_map()
         .into_iter()
         .map(|(name, items)| {

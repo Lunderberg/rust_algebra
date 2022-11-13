@@ -7,11 +7,9 @@ pub fn graph_build(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut elements = Vec::new();
     process_call(orig, &mut elements);
 
-    // TODO: Use backing type as determined by the top-level node,
-    // maybe with a user-specifiable override.
-    quote! { crate::Graph::new(vec![
+    quote! { vec![
         #(#elements,)*
-    ])}
+    ].into()}
     .into()
 }
 

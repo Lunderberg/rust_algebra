@@ -7,6 +7,7 @@ pub trait GraphNodeSelector: Sized {
     fn type_name(&self) -> &'static str;
 }
 
+#[derive(Debug)]
 pub struct Graph<Selector> {
     items: Vec<Selector>,
 }
@@ -15,9 +16,18 @@ pub struct Subgraph<'a, Selector> {
     items: &'a [Selector],
 }
 
+// Relative backreference to earlier node.  Used while traversing the
+// constructed graph.
 #[derive(Debug)]
 pub struct GraphRef<NodeType> {
     rel_pos: usize,
+    _node: PhantomData<*const NodeType>,
+}
+
+// Absolute reference to node.  Used while constructing the graph.
+#[derive(Debug)]
+pub struct GraphBuilderRef<NodeType> {
+    pos: usize,
     _node: PhantomData<*const NodeType>,
 }
 
@@ -44,12 +54,27 @@ impl<'a, Selector> Subgraph<'a, Selector> {
 }
 
 impl<Selector> Graph<Selector> {
-    pub fn new(items: Vec<Selector>) -> Result<Self> {
-        if items.is_empty() {
-            Err(Error::EmptyExpression)
-        } else {
-            Ok(Self { items })
-        }
+    pub fn new() -> Self {
+        Self { items: Vec::new() }
+    }
+
+    pub fn push_top<NodeType, Item: Into<Selector>>(
+        &mut self,
+        item: Item,
+    ) -> GraphBuilderRef<NodeType> {
+        self.items.push(item.into());
+        (self.items.len() - 1).into()
+    }
+
+    pub fn backref<NodeType>(&self, abs_ref: GraphBuilderRef<NodeType>) -> GraphRef<NodeType> {
+        let rel_pos = self.items.len() - abs_ref.pos;
+        rel_pos.into()
+    }
+}
+
+impl<Selector> From<Vec<Selector>> for Graph<Selector> {
+    fn from(items: Vec<Selector>) -> Self {
+        Self { items }
     }
 }
 
@@ -160,6 +185,15 @@ impl<NodeType> From<usize> for GraphRef<NodeType> {
     fn from(rel_pos: usize) -> Self {
         Self {
             rel_pos,
+            _node: PhantomData,
+        }
+    }
+}
+
+impl<NodeType> From<usize> for GraphBuilderRef<NodeType> {
+    fn from(pos: usize) -> Self {
+        Self {
+            pos,
             _node: PhantomData,
         }
     }

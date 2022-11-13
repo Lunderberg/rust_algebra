@@ -8,8 +8,11 @@ use graph_derive::recursive_graph;
 
 #[recursive_graph]
 mod expr {
+    // TODO: Generate "use" statements or absolute paths in the
+    // generated code to avoid needing these declarations.
     use crate::graph::{
-        GraphNode, GraphNodeSelector, GraphRef, LiveGraphNode, LiveGraphRef, Subgraph,
+        Graph, GraphBuilderRef, GraphNode, GraphNodeSelector, GraphRef, LiveGraphNode,
+        LiveGraphRef, Subgraph,
     };
 
     // First one is special, defines the name of all the others.
@@ -85,21 +88,36 @@ mod test {
     use crate::Error;
     use crate::Graph;
 
+    #[test]
     fn test_graph_build_macro() -> Result<(), Error> {
         use graph_derive::graph_build;
 
         let _expr_macro: Graph<expr::selector::IntExpr> = graph_build![IntExpr::Sub(
             IntExpr::Add(IntExpr::Int(5), IntExpr::Int(15)),
             IntExpr::Int(10)
-        )]?;
+        )];
 
-        let _expr_explicit: Graph<expr::selector::BoolExpr> = Graph::new(vec![
+        let _expr_explicit: Graph<expr::selector::BoolExpr> = vec![
             IntExpr::Int(5).into(),
             IntExpr::Int(15).into(),
             IntExpr::Add(2.into(), 1.into()).into(),
             IntExpr::Int(10).into(),
             IntExpr::Sub(2.into(), 1.into()).into(),
-        ])?;
+        ]
+        .into();
+
+        let _expr_from_builder = {
+            use super::expr::builder::*;
+            let mut builder: Graph<expr::selector::BoolExpr> = Graph::new();
+            let a = builder.IntExpr_Int(5);
+            let b = builder.IntExpr_Int(15);
+            let c = builder.IntExpr_Add(a, b);
+            let d = builder.IntExpr_Int(10);
+            let _e = builder.IntExpr_Sub(c, d);
+            builder
+        };
+
+        println!("Expr from builder: {_expr_from_builder:?}");
 
         // TODO: Actually perform a test here.  Will need a comparison
         // of storage contents.
@@ -113,13 +131,14 @@ mod test {
         //     Expr::Add(Expr::Int(5), Expr::Int(15)),
         //     Expr::Int(10),
         // ));
-        let expr: Graph<expr::selector::BoolExpr> = Graph::new(vec![
+        let expr: Graph<expr::selector::BoolExpr> = vec![
             IntExpr::Int(5).into(),
             IntExpr::Int(15).into(),
             IntExpr::Add(2.into(), 1.into()).into(),
             IntExpr::Int(10).into(),
             IntExpr::Sub(2.into(), 1.into()).into(),
-        ])?;
+        ]
+        .into();
 
         let root = expr.borrow()?;
 

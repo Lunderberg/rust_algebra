@@ -14,13 +14,6 @@ mod expr {
         Graph, GraphBuilderRef, GraphNode, GraphNodeSelector, GraphRef, LiveGraphNode,
         LiveGraphRef, Subgraph,
     };
-
-    // First one is special, defines the name of all the others.
-    // Maybe replace in the future, special handling for
-    // variants that reference just a single-reference type?
-    //
-    // Better idea: The macro should generate up to three structs
-    // for each item.
     //
     // (1): A {name} that is the user-facing object.  It
     // represents a full expression, including the Vec<Item>
@@ -42,22 +35,9 @@ mod expr {
     // recursive types that are directly or indirectly reachable from
     // {name}.
 
-    // TODO
-    // enum Basic<T> {
-    //     Literal(T),
-    //     Add(Basic<T>, Basic<T>),
-    //     Sub(Basic<T>, Basic<T>),
-    // }
-
-    // enum IndirectTest {
-    //     Int(i64),
-    //     Recursive(IndirectTest),
-    // }
-
     #[derive(Debug)]
     enum IntExpr {
         Int(i64),
-        //Indirect(IndirectTest),
         Add(IntExpr, IntExpr),
         Sub(IntExpr, IntExpr),
     }

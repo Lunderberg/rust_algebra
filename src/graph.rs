@@ -141,10 +141,7 @@ impl<'a, Selector, Node: GraphNode> LiveGraphRef<'a, Selector, Node>
 where
     for<'c> &'c Node: TryFrom<&'c Selector, Error = Error>,
 {
-    pub fn borrow<'b>(&self) -> Result<Node::LiveType<'b, Selector>>
-    where
-        'a: 'b,
-    {
+    pub fn borrow(&self) -> Result<Node::LiveType<'a, Selector>> {
         let subgraph = self.get_subgraph()?;
         let selector: &Selector = subgraph.items.last().ok_or(Error::EmptyExpression)?;
         let node: &Node = selector.try_into()?;

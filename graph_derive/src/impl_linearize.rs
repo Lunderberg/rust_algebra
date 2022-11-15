@@ -119,8 +119,10 @@ fn generate_storage_enum(
             if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
                 let ident = &path.segments.last().unwrap().ident;
                 if self.referenced.contains(&ident) {
-                    return syn::parse2(quote! { GraphRef<#path> })
-                        .expect("Error parsing generated storage enum");
+                    return syn::parse2(quote! {
+                        ::algebra::graph::GraphRef<#path>
+                    })
+                    .expect("Error parsing generated storage enum");
                 }
             }
             ty
@@ -161,7 +163,9 @@ fn generate_storage_trait_impl<'a>(
                             .map(|(i,field)| {
                                 let ident = format_ident!("field_{i}");
                                 let stream = if is_recursive_type(&field.ty) {
-                                    quote!{ LiveGraphRef::new(*#ident, subgraph.clone()) }
+                                    quote!{
+                                        ::algebra::graph::LiveGraphRef::new(*#ident, subgraph.clone())
+                                    }
                                 } else {
                                     quote!{ *#ident }
                                 };
@@ -184,14 +188,17 @@ fn generate_storage_trait_impl<'a>(
             .collect();
 
         let stream = quote! {
-            impl GraphNode<super::selector::#selector> for #referenced_name
+            impl ::algebra::graph::GraphNode<super::selector::#selector>
+                for #referenced_name
             where
                 for<'c> &'c Self : TryFrom<&'c super::selector::#selector>
             {
                 type LiveType<'a> =
                     super::live::#referenced_name<'a, super::selector::#selector>;
 
-                fn to_live_type<'a>(&self, subgraph: Subgraph<'a, super::selector::#selector>) -> Self::LiveType<'a> {
+                fn to_live_type<'a>(
+                    &self, subgraph: ::algebra::graph::Subgraph<'a, super::selector::#selector>
+                ) -> Self::LiveType<'a> {
                     match self {
                         #(#live_type_arms)*
                     }
@@ -218,6 +225,7 @@ fn generate_storage_try_from_selector_impl<'a>(
 
                 fn try_from(val: &'b super::selector::#selector)
                             -> Result<Self,Self::Error> {
+                    use ::algebra::graph::GraphNodeSelector;
                     match val {
                         super::selector::#selector::#storage(e) => Ok(e),
                         _ => Err(Self::Error::IncorrectType{
@@ -254,9 +262,9 @@ fn generate_live_enum(
             if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
                 let ident = &path.segments.last().unwrap().ident;
                 if self.referenced.contains(&ident) {
-                    return syn::parse2(
-                        quote! { LiveGraphRef<'a, Selector, super::storage::#path> },
-                    )
+                    return syn::parse2(quote! {
+                        ::algebra::graph::LiveGraphRef<'a, Selector, super::storage::#path>
+                    })
                     .expect("Error parsing generated type for live enum");
                 }
             }
@@ -283,9 +291,9 @@ fn generate_live_enum_trait_impl(
     let ident = &item_enum.ident;
 
     let stream = quote! {
-        impl<'a, Selector: 'a> LiveGraphNode<'a, Selector> for #ident<'a, Selector>
+        impl<'a, Selector: 'a> ::algebra::graph::LiveGraphNode<'a, Selector> for #ident<'a, Selector>
         where
-            super::storage::#ident: GraphNode<Selector, LiveType<'a> = Self>,
+            super::storage::#ident: ::algebra::graph::GraphNode<Selector, LiveType<'a> = Self>,
         {
             type StorageType = super::storage::#ident;
         }
@@ -332,7 +340,7 @@ fn generate_selector_trait_impl(
         .collect();
 
     let stream = quote! {
-            impl GraphNodeSelector for #name {
+            impl ::algebra::graph::GraphNodeSelector for #name {
                 fn type_name(&self) -> &'static str {
                     match self {
                         #(Self::#referenced_idents(_) => #referenced_names,)*
@@ -397,8 +405,10 @@ fn generate_builder_trait<'a>(
                     let arg_name = format_ident!("param{i}");
                     if is_recursive_type(&field.ty) {
                         let ty = &field.ty;
-                        let ty =
-                            syn::parse2(quote! {GraphBuilderRef<super::storage::#ty>}).unwrap();
+                        let ty = syn::parse2(quote! {
+                            ::algebra::graph::GraphBuilderRef<super::storage::#ty>
+                        })
+                        .unwrap();
                         let param_expr = syn::parse2(quote! {
                             self.backref(#arg_name)
                         })
@@ -432,7 +442,7 @@ fn generate_builder_trait<'a>(
             let arg_types = &info.arg_types;
             let stream = quote! {
                 fn #method_name(&mut self, #( #arg_names: #arg_types ),* )
-                                -> GraphBuilderRef<super::storage::#ident>;
+                                -> ::algebra::graph::GraphBuilderRef<super::storage::#ident>;
             };
             syn::parse2(stream).expect("Error parsing generated trait method for builder")
         })
@@ -448,7 +458,7 @@ fn generate_builder_trait<'a>(
             let param_exprs = &info.param_exprs;
             let stream = quote! {
                 fn #method_name(&mut self, #( #arg_names: #arg_types ),* )
-                                -> GraphBuilderRef<super::storage::#ident> {
+                                -> ::algebra::graph::GraphBuilderRef<super::storage::#ident> {
                     self.push_top(super::storage::#ident::#variant_name(
                         #( #param_exprs ),*
                     ))
@@ -467,7 +477,7 @@ fn generate_builder_trait<'a>(
     };
 
     let builder_trait_impl = quote! {
-        impl<Selector> #builder for Graph<Selector>
+        impl<Selector> #builder for ::algebra::graph::Graph<Selector>
         where Selector: From<super::storage::#ident>,
         {
             #![allow(non_snake_case)]

@@ -1,20 +1,9 @@
 #![allow(unused_imports)]
-#![allow(dead_code)]
-
-use crate::graph::{GraphNode, GraphNodeSelector, GraphRef, LiveGraphRef, Subgraph};
-use crate::Error;
 
 use graph_derive::recursive_graph;
 
 #[recursive_graph]
 mod expr {
-    // TODO: Generate "use" statements or absolute paths in the
-    // generated code to avoid needing these declarations.
-    use crate::graph::{
-        Graph, GraphBuilderRef, GraphNode, GraphNodeSelector, GraphRef, LiveGraphNode,
-        LiveGraphRef, Subgraph,
-    };
-    //
     // (1): A {name} that is the user-facing object.  It
     // represents a full expression, including the Vec<Item>
     // storage.  The storage type is either itself, or another

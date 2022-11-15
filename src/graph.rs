@@ -51,12 +51,6 @@ pub trait GraphNode {
         for<'c> &'c Self: TryFrom<&'c Selector>;
 }
 
-impl<'a, Selector> Subgraph<'a, Selector> {
-    pub fn node(&self) -> &Selector {
-        self.items.last().unwrap()
-    }
-}
-
 impl<Selector> Graph<Selector> {
     pub fn new() -> Self {
         Self { items: Vec::new() }
@@ -152,7 +146,7 @@ where
         'a: 'b,
     {
         let subgraph = self.get_subgraph()?;
-        let selector: &Selector = subgraph.node();
+        let selector: &Selector = subgraph.items.last().ok_or(Error::EmptyExpression)?;
         let node: &Node = selector.try_into()?;
         Ok((*node).to_live_type(subgraph.clone()))
     }

@@ -145,69 +145,70 @@ fn generate_storage_trait_impl<'a>(
     item_enum: &'a syn::ItemEnum,
     referenced_enums: &'a Vec<syn::ItemEnum>,
 ) -> impl Iterator<Item = syn::Item> + 'a {
-    let selector = &item_enum.ident;
-
     let is_recursive_type = recursive_type_checker(referenced_enums);
 
-    referenced_enums.iter().map(move |referenced_enum| {
-        let referenced_name = &referenced_enum.ident;
-        let live_type_arms: Vec<syn::Arm> = referenced_enum.variants
-            .iter()
-            .map(|var: &syn::Variant| -> syn::Arm {
-                let ident = &var.ident;
-                match &var.fields {
-                    syn::Fields::Named(_) => todo!("Named enum fields"),
-                    syn::Fields::Unnamed(fields) => {
-                        let (field_names,live_field_exprs): (Vec<_>, Vec<_>) = fields.unnamed.iter()
-                            .enumerate()
-                            .map(|(i,field)| {
-                                let ident = format_ident!("field_{i}");
-                                let stream = if is_recursive_type(&field.ty) {
-                                    quote!{
-                                        ::algebra::graph::LiveGraphRef::new(*#ident, subgraph.clone())
-                                    }
-                                } else {
-                                    quote!{ *#ident }
-                                };
-                                let expr: syn::Expr = syn::parse2(stream).expect("Error parsing generated live field");
-                                (ident,expr)
-                            })
-                            .unzip();
-                        syn::parse2(quote!{
-                            Self::#ident(#(#field_names),*) =>
-                                Self::LiveType::#ident(#(#live_field_exprs),*),
-                        }).expect("Error parsing generated arm in match statement")
-                    }
-                    syn::Fields::Unit => {
-                        syn::parse2(quote!{
-                            Self::#ident => Self::LiveType::#ident,
-                        }).unwrap()
-                    }
+    let ident = &item_enum.ident;
+
+    let live_type_arms: Vec<syn::Arm> = item_enum
+        .variants
+        .iter()
+        .map(|var: &syn::Variant| -> syn::Arm {
+            let ident = &var.ident;
+            match &var.fields {
+                syn::Fields::Named(_) => todo!("Named enum fields"),
+                syn::Fields::Unnamed(fields) => {
+                    let (field_names, live_field_exprs): (Vec<_>, Vec<_>) = fields
+                        .unnamed
+                        .iter()
+                        .enumerate()
+                        .map(|(i, field)| {
+                            let ident = format_ident!("field_{i}");
+                            let stream = if is_recursive_type(&field.ty) {
+                                quote! {
+                                    ::algebra::graph::LiveGraphRef::new(*#ident, subgraph.clone())
+                                }
+                            } else {
+                                quote! { *#ident }
+                            };
+                            let expr: syn::Expr =
+                                syn::parse2(stream).expect("Error parsing generated live field");
+                            (ident, expr)
+                        })
+                        .unzip();
+                    syn::parse2(quote! {
+                        Self::#ident(#(#field_names),*) =>
+                            Self::LiveType::<'a, Selector>::#ident(
+                                #(#live_field_exprs),*
+                            ),
+                    })
+                    .expect("Error parsing generated arm in match statement")
                 }
-            })
-            .collect();
+                syn::Fields::Unit => syn::parse2(quote! {
+                    Self::#ident => Self::LiveType::<'a, Selector>::#ident,
+                })
+                .unwrap(),
+            }
+        })
+        .collect();
 
-        let stream = quote! {
-            impl ::algebra::graph::GraphNode<super::selector::#selector>
-                for #referenced_name
+    let stream = quote! {
+        impl ::algebra::graph::GraphNode for #ident {
+            type LiveType<'a, Selector: 'a> =
+                super::live::#ident<'a, Selector>;
+
+            fn to_live_type<'a, Selector: 'a>(
+                &self, subgraph: ::algebra::graph::Subgraph<'a, Selector>
+            ) -> Self::LiveType<'a, Selector>
             where
-                for<'c> &'c Self : TryFrom<&'c super::selector::#selector>
-            {
-                type LiveType<'a> =
-                    super::live::#referenced_name<'a, super::selector::#selector>;
-
-                fn to_live_type<'a>(
-                    &self, subgraph: ::algebra::graph::Subgraph<'a, super::selector::#selector>
-                ) -> Self::LiveType<'a> {
-                    match self {
-                        #(#live_type_arms)*
-                    }
+                for<'c> &'c Self: TryFrom<&'c Selector> {
+                match self {
+                    #(#live_type_arms)*
                 }
             }
-        };
-        syn::parse2(stream)
-            .expect("Error parsing generated storage trait")
-    })
+        }
+    };
+
+    std::iter::once(syn::parse2(stream).expect("Error parsing generated storage trait"))
 }
 
 fn generate_storage_try_from_selector_impl<'a>(
@@ -293,7 +294,7 @@ fn generate_live_enum_trait_impl(
     let stream = quote! {
         impl<'a, Selector: 'a> ::algebra::graph::LiveGraphNode<'a, Selector> for #ident<'a, Selector>
         where
-            super::storage::#ident: ::algebra::graph::GraphNode<Selector, LiveType<'a> = Self>,
+            super::storage::#ident: ::algebra::graph::GraphNode<LiveType<'a, Selector> = Self>,
         {
             type StorageType = super::storage::#ident;
         }

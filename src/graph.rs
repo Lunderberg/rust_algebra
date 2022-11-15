@@ -37,14 +37,18 @@ pub struct LiveGraphRef<'a, Selector, NodeType> {
 }
 
 pub trait LiveGraphNode<'a, Selector: 'a> {
-    type StorageType: GraphNode<Selector, LiveType<'a> = Self>;
+    type StorageType: GraphNode<LiveType<'a, Selector> = Self>;
 }
 
-pub trait GraphNode<Selector> {
-    type LiveType<'a>
+pub trait GraphNode {
+    type LiveType<'a, Selector: 'a>;
+
+    fn to_live_type<'a, Selector: 'a>(
+        &self,
+        subgraph: Subgraph<'a, Selector>,
+    ) -> Self::LiveType<'a, Selector>
     where
-        Selector: 'a;
-    fn to_live_type<'a>(&self, subgraph: Subgraph<'a, Selector>) -> Self::LiveType<'a>;
+        for<'c> &'c Self: TryFrom<&'c Selector>;
 }
 
 impl<'a, Selector> Subgraph<'a, Selector> {
@@ -80,7 +84,7 @@ impl<Selector> From<Vec<Selector>> for Graph<Selector> {
 
 impl<'a, Selector, NodeType> TryFrom<&'a Graph<Selector>> for LiveGraphRef<'a, Selector, NodeType>
 where
-    NodeType: GraphNode<Selector>,
+    NodeType: GraphNode,
     for<'b> &'b NodeType: TryFrom<&'b Selector, Error = Error>,
 {
     type Error = Error;
@@ -139,11 +143,11 @@ impl<'a, Selector, NodeType> LiveGraphRef<'a, Selector, NodeType> {
     }
 }
 
-impl<'a, Selector, Node: GraphNode<Selector>> LiveGraphRef<'a, Selector, Node>
+impl<'a, Selector, Node: GraphNode> LiveGraphRef<'a, Selector, Node>
 where
     for<'c> &'c Node: TryFrom<&'c Selector, Error = Error>,
 {
-    pub fn borrow<'b>(&self) -> Result<Node::LiveType<'b>>
+    pub fn borrow<'b>(&self) -> Result<Node::LiveType<'b, Selector>>
     where
         'a: 'b,
     {

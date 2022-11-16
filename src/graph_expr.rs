@@ -75,18 +75,41 @@ mod test {
         ]
         .into();
 
-        let _expr_from_builder = {
+        let _expr_from_builder_explicit_types = {
             use super::expr::builder::*;
             let mut builder: Graph<BoolExpr> = Graph::new();
             let a = builder.IntExpr_Int(5);
             let b = builder.IntExpr_Int(15);
             let c = builder.IntExpr_Add(a, b);
-            let d = builder.IntExpr_Int(10);
-            let _e = builder.IntExpr_Sub(c, d);
+            let d = builder.IntExpr_Int(20);
+            let e = builder.BoolExpr_IntEqual(c, d);
+            let f = builder.FloatExpr_Float(5.0);
+            let g = builder.FloatExpr_Float(15.0);
+            let h = builder.FloatExpr_Add(f, g);
+            let i = builder.FloatExpr_Float(20.0);
+            let j = builder.BoolExpr_FloatEqual(h, i);
+            let _k = builder.BoolExpr_And(e, j);
             builder
         };
 
-        println!("Expr from builder: {_expr_from_builder:?}");
+        let _expr_from_builder_implicit_types = {
+            use super::expr::builder::*;
+            let mut builder: Graph<BoolExpr> = Graph::new();
+            let a = builder.Int(5);
+            let b = builder.Int(15);
+            let c = builder.Add(a, b);
+            let d = builder.Int(20);
+            let e = builder.IntEqual(c, d);
+            let f = builder.Float(5.0);
+            let g = builder.Float(15.0);
+            let h = builder.Add(f, g);
+            let i = builder.Float(20.0);
+            let j = builder.FloatEqual(h, i);
+            let _k = builder.And(e, j);
+            builder
+        };
+
+        println!("Expr from builder: {_expr_from_builder_implicit_types:#?}");
 
         // TODO: Actually perform a test here.  Will need a comparison
         // of storage contents.

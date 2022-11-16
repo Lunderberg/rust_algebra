@@ -14,7 +14,6 @@ pub struct Subgraph<'a, BaseType: GraphNode> {
 
 // Relative backreference to earlier node.  Used while traversing the
 // constructed graph.
-#[derive(Debug)]
 pub struct GraphRef<NodeType> {
     rel_pos: usize,
     _node: PhantomData<*const NodeType>,
@@ -153,6 +152,20 @@ impl<'a, BaseType: GraphNode, LiveItem> Debug for LiveGraphRef<'a, BaseType, Liv
         f.debug_struct("LiveGraphRef")
             .field("rel_pos", &self.graph_ref.rel_pos)
             .finish()
+    }
+}
+
+impl<NodeType> Debug for GraphRef<NodeType> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(&format!(
+            "GraphRef<{}>",
+            std::any::type_name::<NodeType>()
+                .rsplit("::")
+                .next()
+                .unwrap()
+        ))
+        .field("rel_pos", &self.rel_pos)
+        .finish()
     }
 }
 

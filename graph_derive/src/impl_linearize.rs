@@ -364,7 +364,7 @@ fn generate_selector_from_storage_impl<'a>(
     })
 }
 
-fn generate_builder_trait<'a>(
+fn generate_typed_builder_trait<'a>(
     item_enum: &'a syn::ItemEnum,
     referenced_enums: &'a Vec<syn::ItemEnum>,
 ) -> impl Iterator<Item = syn::Item> + 'a {
@@ -483,6 +483,245 @@ fn generate_builder_trait<'a>(
         .map(|stream| syn::parse2(stream).expect("Failed to parse generated builder trait/impl"))
 }
 
+fn generate_overload_dummy_struct<'a>(
+    module_name: &'a str,
+) -> impl Iterator<Item = (&'a str, syn::Item)> + 'a {
+    let stream = quote! {
+        pub struct OverloadDummy;
+    };
+    let obj = syn::parse2(stream).expect("Error parsing dummy overload struct");
+    std::iter::once((module_name, obj))
+}
+
+fn generate_overloaded_builder_trait<'a>(
+    item_enum: &'a syn::ItemEnum,
+    referenced_enums: &'a Vec<syn::ItemEnum>,
+) -> impl Iterator<Item = syn::Item> + 'a {
+    let base_type = &item_enum.ident;
+
+    #[derive(Debug)]
+    struct MethodInfo {
+        storage_type: syn::Ident,
+        method_name: syn::Ident,
+        field_types: Vec<syn::Type>,
+    }
+
+    struct OverloadSet {
+        method_name: syn::Ident,
+        dummy_trait_name: syn::Ident,
+        method_trait_name: syn::Ident,
+        param_names: Vec<syn::Ident>,
+        generic_type_params: Vec<syn::Ident>,
+        overloads: Vec<MethodInfo>,
+    }
+
+    let is_recursive_type = recursive_type_checker(referenced_enums);
+
+    let info: Vec<MethodInfo> = referenced_enums
+        .iter()
+        .map(|ref_enum| {
+            let storage_type = ref_enum.ident.clone();
+            ref_enum
+                .variants
+                .iter()
+                .map(|var: &syn::Variant| {
+                    let field_types = var
+                        .fields
+                        .iter()
+                        .map(|field| {
+                            let ty = &field.ty;
+                            if is_recursive_type(ty) {
+                                syn::parse2(quote! {
+                                    ::algebra::graph::GraphBuilderRef<super::storage::#ty>
+                                })
+                                .unwrap()
+                            } else {
+                                ty.clone()
+                            }
+                        })
+                        .collect();
+                    MethodInfo {
+                        storage_type: storage_type.clone(),
+                        method_name: var.ident.clone(),
+                        field_types,
+                    }
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+        })
+        .flatten()
+        .collect();
+
+    let overload_sets: Vec<OverloadSet> = info
+        .into_iter()
+        .map(|overloads| (overloads.method_name.clone(), overloads))
+        .into_group_map()
+        .into_values()
+        .filter(|overloads| {
+            overloads
+                .iter()
+                .map(|info| info.field_types.len())
+                .unique()
+                .count()
+                == 1
+        })
+        .filter(|overloads| {
+            overloads
+                .iter()
+                .map(|info| &info.field_types)
+                .duplicates()
+                .next()
+                .is_none()
+        })
+        .map(|overloads| {
+            let method_name = overloads[0].method_name.clone();
+            let dummy_trait_name = format_ident!("{base_type}_{method_name}_OverloadDummy");
+            let method_trait_name = format_ident!("{base_type}_{method_name}_OverloadMethod");
+            let param_names = overloads[0]
+                .field_types
+                .iter()
+                .enumerate()
+                .map(|(i, _ty)| format_ident!("param{i}"))
+                .collect();
+            let generic_type_params = overloads[0]
+                .field_types
+                .iter()
+                .enumerate()
+                .map(|(i, _ty)| format_ident!("T{i}"))
+                .collect();
+            OverloadSet {
+                method_name,
+                dummy_trait_name,
+                method_trait_name,
+                param_names,
+                generic_type_params,
+                overloads,
+            }
+        })
+        .collect();
+
+    let overload_dummy_traits = overload_sets
+        .iter()
+        .map(|overload_set| {
+            let method_name = &overload_set.method_name;
+            let dummy_trait_name = &overload_set.dummy_trait_name;
+            let param_names = &overload_set.param_names;
+            let generic_type_params = &overload_set.generic_type_params;
+            let stream = quote! {
+                pub trait #dummy_trait_name< #( #generic_type_params ),* > {
+                    type OutNode;
+                    fn #method_name(
+                        graph: &mut ::algebra::graph::Graph<super::storage::#base_type>,
+                        #( #param_names: #generic_type_params, )*
+                    ) -> ::algebra::graph::GraphBuilderRef<Self::OutNode>;
+                }
+            };
+            syn::parse2(stream).expect("Error parsing overloaded dummy trait")
+        })
+        .collect::<Vec<syn::Item>>()
+        .into_iter();
+
+    let overload_dummy_trait_impls = overload_sets
+        .iter()
+        .map(|overload_set| {
+            let method_name = &overload_set.method_name;
+            let dummy_trait_name = &overload_set.dummy_trait_name;
+            let param_names = &overload_set.param_names;
+            overload_set
+                .overloads
+                .iter()
+                .map(|overload| -> syn::Item {
+                    let field_types = &overload.field_types;
+                    let storage_type = &overload.storage_type;
+                    let delegate = format_ident!("{storage_type}_{method_name}");
+                    let stream = quote! {
+                        impl #dummy_trait_name< #( #field_types ),* > for OverloadDummy {
+                            type OutNode = super::storage::#storage_type;
+                            fn #method_name (
+                                graph: &mut ::algebra::graph::Graph<super::storage::#base_type>,
+                                #( #param_names: #field_types, )*
+                            ) -> ::algebra::graph::GraphBuilderRef<Self::OutNode> {
+                                graph.#delegate( #(#param_names),* )
+                            }
+
+                        }
+                    };
+                    syn::parse2(stream).expect("Error parsing overloaded dummy trait impl")
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+        })
+        .flatten()
+        .collect::<Vec<syn::Item>>()
+        .into_iter();
+
+    let overload_method_trait = overload_sets
+        .iter()
+        .map(|overload_set| {
+            let method_name = &overload_set.method_name;
+            let dummy_trait_name = &overload_set.dummy_trait_name;
+            let method_trait_name = &overload_set.method_trait_name;
+            let param_names = &overload_set.param_names;
+            let generic_type_params = &overload_set.generic_type_params;
+
+            let stream = quote! {
+                pub trait #method_trait_name {
+                    fn #method_name< #( #generic_type_params ),* >(
+                        &mut self,
+                        #( #param_names: #generic_type_params, )*
+                    ) -> ::algebra::graph::GraphBuilderRef<<
+                        OverloadDummy as #dummy_trait_name
+                             < #( #generic_type_params ),* >
+                        >::OutNode>
+                    where
+                        OverloadDummy: #dummy_trait_name
+                    < #( #generic_type_params ),* >;
+                }
+            };
+            syn::parse2(stream).expect("Error parsing overloaded method trait")
+        })
+        .collect::<Vec<syn::Item>>()
+        .into_iter();
+
+    let overload_method_trait_impls = overload_sets
+        .iter()
+        .map(|overload_set| {
+            let method_name = &overload_set.method_name;
+            let dummy_trait_name = &overload_set.dummy_trait_name;
+            let method_trait_name = &overload_set.method_trait_name;
+            let param_names = &overload_set.param_names;
+            let generic_type_params = &overload_set.generic_type_params;
+
+            let stream = quote! {
+                impl #method_trait_name for ::algebra::graph::Graph<super::storage::#base_type> {
+                    fn #method_name< #( #generic_type_params ),* >(
+                        &mut self,
+                        #( #param_names: #generic_type_params, )*
+                    ) -> ::algebra::graph::GraphBuilderRef<<
+                            OverloadDummy as #dummy_trait_name
+                                < #( #generic_type_params ),* >
+                            >::OutNode>
+                    where
+                        OverloadDummy: #dummy_trait_name
+                        < #( #generic_type_params ),* > {
+                        <OverloadDummy as #dummy_trait_name
+                         < #( #generic_type_params ),* >
+                        >::#method_name(self, #( #param_names ),* )
+                    }
+                }
+            };
+            syn::parse2(stream).expect("Error parsing overloaded method trait")
+        })
+        .collect::<Vec<syn::Item>>()
+        .into_iter();
+
+    std::iter::empty()
+        .chain(overload_dummy_traits)
+        .chain(overload_dummy_trait_impls)
+        .chain(overload_method_trait)
+        .chain(overload_method_trait_impls)
+}
+
 fn apply_generator<'a, G, I>(
     enums: &'a Vec<(syn::ItemEnum, Vec<syn::ItemEnum>)>,
     dest_module: &'a str,
@@ -538,7 +777,17 @@ pub fn linearize_recursive_enums(
             "selector",
             generate_selector_from_storage_impl,
         ))
-        .chain(apply_generator(&enums, "builder", generate_builder_trait))
+        .chain(apply_generator(
+            &enums,
+            "builder",
+            generate_typed_builder_trait,
+        ))
+        .chain(generate_overload_dummy_struct("builder"))
+        .chain(apply_generator(
+            &enums,
+            "builder",
+            generate_overloaded_builder_trait,
+        ))
         .into_group_map()
         .into_iter()
         .map(|(name, items)| {

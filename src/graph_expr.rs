@@ -61,12 +61,12 @@ mod test {
     fn test_graph_build_macro() -> Result<(), Error> {
         use graph_derive::graph_build;
 
-        let _expr_macro: Graph<expr::selector::IntExpr> = graph_build![IntExpr::Sub(
+        let _expr_macro: Graph<IntExpr> = graph_build![IntExpr::Sub(
             IntExpr::Add(IntExpr::Int(5), IntExpr::Int(15)),
             IntExpr::Int(10)
         )];
 
-        let _expr_explicit: Graph<expr::selector::BoolExpr> = vec![
+        let _expr_explicit: Graph<BoolExpr> = vec![
             IntExpr::Int(5).into(),
             IntExpr::Int(15).into(),
             IntExpr::Add(2.into(), 1.into()).into(),
@@ -77,7 +77,7 @@ mod test {
 
         let _expr_from_builder = {
             use super::expr::builder::*;
-            let mut builder: Graph<expr::selector::BoolExpr> = Graph::new();
+            let mut builder: Graph<BoolExpr> = Graph::new();
             let a = builder.IntExpr_Int(5);
             let b = builder.IntExpr_Int(15);
             let c = builder.IntExpr_Add(a, b);
@@ -100,7 +100,7 @@ mod test {
         //     Expr::Add(Expr::Int(5), Expr::Int(15)),
         //     Expr::Int(10),
         // ));
-        let expr: Graph<expr::selector::BoolExpr> = vec![
+        let expr: Graph<BoolExpr> = vec![
             IntExpr::Int(5).into(),
             IntExpr::Int(15).into(),
             IntExpr::Add(2.into(), 1.into()).into(),

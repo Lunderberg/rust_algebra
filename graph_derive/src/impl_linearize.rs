@@ -177,14 +177,14 @@ fn generate_storage_trait_impl<'a>(
                         .unzip();
                     syn::parse2(quote! {
                         Self::#ident(#(#field_names),*) =>
-                            Self::LiveType::<'a, Selector>::#ident(
+                            Self::LiveType::<'a, BaseType>::#ident(
                                 #(#live_field_exprs),*
                             ),
                     })
                     .expect("Error parsing generated arm in match statement")
                 }
                 syn::Fields::Unit => syn::parse2(quote! {
-                    Self::#ident => Self::LiveType::<'a, Selector>::#ident,
+                    Self::#ident => Self::LiveType::<'a, BaseType>::#ident,
                 })
                 .unwrap(),
             }
@@ -193,14 +193,16 @@ fn generate_storage_trait_impl<'a>(
 
     let stream = quote! {
         impl ::algebra::graph::GraphNode for #ident {
-            type LiveType<'a, Selector: 'a> =
-                super::live::#ident<'a, Selector>;
+            type DefaultSelector = super::selector::#ident;
 
-            fn to_live_type<'a, Selector: 'a>(
-                &self, subgraph: ::algebra::graph::Subgraph<'a, Selector>
-            ) -> Self::LiveType<'a, Selector>
+            type LiveType<'a, BaseType: ::algebra::graph::GraphNode+ 'a> =
+                super::live::#ident<'a, BaseType>;
+
+            fn to_live_type<'a, BaseType: ::algebra::graph::GraphNode+ 'a>(
+                &self, subgraph: ::algebra::graph::Subgraph<'a, BaseType>
+            ) -> Self::LiveType<'a, BaseType>
             where
-                for<'c> &'c Self: TryFrom<&'c Selector> {
+                for<'c> &'c Self: TryFrom<&'c BaseType::DefaultSelector> {
                 match self {
                     #(#live_type_arms)*
                 }
@@ -272,7 +274,7 @@ fn generate_live_enum(
         fn fold_generics(&mut self, generics: syn::Generics) -> syn::Generics {
             let params = generics.params;
             syn::parse2(quote! {
-                <'a, Selector, #params>
+                <'a, BaseType: ::algebra::graph::GraphNode, #params>
             })
             .expect("Error parsing generated generics for live enum")
         }
@@ -282,7 +284,7 @@ fn generate_live_enum(
                 let ident = &path.segments.last().unwrap().ident;
                 if self.referenced.contains(&ident) {
                     return syn::parse2(quote! {
-                        ::algebra::graph::LiveGraphRef<'a, Selector, super::storage::#path>
+                        ::algebra::graph::LiveGraphRef<'a, BaseType, super::storage::#path>
                     })
                     .expect("Error parsing generated type for live enum");
                 }
@@ -310,9 +312,11 @@ fn generate_live_enum_trait_impl(
     let ident = &item_enum.ident;
 
     let stream = quote! {
-        impl<'a, Selector: 'a> ::algebra::graph::LiveGraphNode<'a, Selector> for #ident<'a, Selector>
+        impl<'a, BaseType: ::algebra::graph::GraphNode+ 'a>
+            ::algebra::graph::LiveGraphNode<'a, BaseType>
+            for #ident<'a, BaseType>
         where
-            super::storage::#ident: ::algebra::graph::GraphNode<LiveType<'a, Selector> = Self>,
+            super::storage::#ident: ::algebra::graph::GraphNode<LiveType<'a, BaseType> = Self>,
         {
             type StorageType = super::storage::#ident;
         }
@@ -464,8 +468,9 @@ fn generate_builder_trait<'a>(
     };
 
     let builder_trait_impl = quote! {
-        impl<Selector> #builder for ::algebra::graph::Graph<Selector>
-        where Selector: From<super::storage::#ident>,
+        impl<BaseType: ::algebra::graph::GraphNode> #builder
+            for ::algebra::graph::Graph<BaseType>
+        where BaseType::DefaultSelector: From<super::storage::#ident>,
         {
             #![allow(non_snake_case)]
 

@@ -3,17 +3,13 @@ use std::marker::PhantomData;
 
 use crate::{Error, Result};
 
-pub trait GraphNodeSelector: Sized {
-    fn type_name(&self) -> &'static str;
-}
-
 #[derive(Debug)]
-pub struct Graph<Selector> {
-    items: Vec<Selector>,
+pub struct Graph<BaseType: GraphNode> {
+    items: Vec<BaseType::DefaultSelector>,
 }
 
-pub struct Subgraph<'a, Selector> {
-    items: &'a [Selector],
+pub struct Subgraph<'a, BaseType: GraphNode> {
+    items: &'a [BaseType::DefaultSelector],
 }
 
 // Relative backreference to earlier node.  Used while traversing the
@@ -31,32 +27,34 @@ pub struct GraphBuilderRef<NodeType> {
     _node: PhantomData<*const NodeType>,
 }
 
-pub struct LiveGraphRef<'a, Selector, NodeType> {
-    subgraph: Subgraph<'a, Selector>,
+pub struct LiveGraphRef<'a, BaseType: GraphNode, NodeType> {
+    subgraph: Subgraph<'a, BaseType>,
     graph_ref: GraphRef<NodeType>,
 }
 
-pub trait LiveGraphNode<'a, Selector: 'a> {
-    type StorageType: GraphNode<LiveType<'a, Selector> = Self>;
+pub trait LiveGraphNode<'a, BaseType: GraphNode + 'a> {
+    type StorageType: GraphNode<LiveType<'a, BaseType> = Self>;
 }
 
 pub trait GraphNode {
-    type LiveType<'a, Selector: 'a>;
+    type DefaultSelector;
 
-    fn to_live_type<'a, Selector: 'a>(
+    type LiveType<'a, BaseType: GraphNode + 'a>;
+
+    fn to_live_type<'a, BaseType: GraphNode + 'a>(
         &self,
-        subgraph: Subgraph<'a, Selector>,
-    ) -> Self::LiveType<'a, Selector>
+        subgraph: Subgraph<'a, BaseType>,
+    ) -> Self::LiveType<'a, BaseType>
     where
-        for<'c> &'c Self: TryFrom<&'c Selector>;
+        for<'c> &'c Self: TryFrom<&'c BaseType::DefaultSelector>;
 }
 
-impl<Selector> Graph<Selector> {
+impl<BaseType: GraphNode> Graph<BaseType> {
     pub fn new() -> Self {
         Self { items: Vec::new() }
     }
 
-    pub fn push_top<NodeType, Item: Into<Selector>>(
+    pub fn push_top<NodeType, Item: Into<BaseType::DefaultSelector>>(
         &mut self,
         item: Item,
     ) -> GraphBuilderRef<NodeType> {
@@ -70,23 +68,23 @@ impl<Selector> Graph<Selector> {
     }
 }
 
-impl<Selector> From<Vec<Selector>> for Graph<Selector> {
-    fn from(items: Vec<Selector>) -> Self {
+impl<BaseType: GraphNode> From<Vec<BaseType::DefaultSelector>> for Graph<BaseType> {
+    fn from(items: Vec<BaseType::DefaultSelector>) -> Self {
         Self { items }
     }
 }
 
-impl<'a, Selector, NodeType> TryFrom<&'a Graph<Selector>> for LiveGraphRef<'a, Selector, NodeType>
+impl<'a, BaseType: GraphNode, NodeType: GraphNode> TryFrom<&'a Graph<BaseType>>
+    for LiveGraphRef<'a, BaseType, NodeType>
 where
-    NodeType: GraphNode,
-    for<'b> &'b NodeType: TryFrom<&'b Selector, Error = Error>,
+    for<'b> &'b NodeType: TryFrom<&'b BaseType::DefaultSelector, Error = Error>,
 {
     type Error = Error;
 
-    fn try_from(value: &'a Graph<Selector>) -> Result<Self> {
-        let selector: &Selector = value.items.last().unwrap();
+    fn try_from(value: &'a Graph<BaseType>) -> Result<Self> {
+        let selector: &BaseType::DefaultSelector = value.items.last().unwrap();
         let _node: &NodeType = selector.try_into()?;
-        let subgraph: Subgraph<Selector> = value.into();
+        let subgraph: Subgraph<BaseType> = value.into();
         Ok(Self {
             subgraph,
             graph_ref: 0.into(),
@@ -94,32 +92,32 @@ where
     }
 }
 
-impl<Selector> Graph<Selector> {
+impl<BaseType: GraphNode> Graph<BaseType> {
     // Intentionally introduce OutLiveType as a deducible parameter,
     // rather than specifying the return type as
     // Result<Node::LiveType<'a>>.  Otherwise, the usage of the output
     // value cannot be used to deduce the return type.
-    pub fn borrow<'a, 'b: 'a, OutLiveType: LiveGraphNode<'a, Selector>>(
+    pub fn borrow<'a, 'b: 'a, OutLiveType: LiveGraphNode<'a, BaseType>>(
         &'b self,
     ) -> Result<OutLiveType>
     where
-        for<'c> &'c OutLiveType::StorageType: TryFrom<&'c Selector, Error = Error>,
+        for<'c> &'c OutLiveType::StorageType: TryFrom<&'c BaseType::DefaultSelector, Error = Error>,
     {
-        let graph_ref: LiveGraphRef<'a, Selector, OutLiveType::StorageType> =
+        let graph_ref: LiveGraphRef<'a, BaseType, OutLiveType::StorageType> =
             LiveGraphRef::new(0.into(), self.into());
         graph_ref.borrow()
     }
 }
 
-impl<'a, Selector, NodeType> LiveGraphRef<'a, Selector, NodeType> {
-    pub fn new<'b: 'a>(graph_ref: GraphRef<NodeType>, subgraph: Subgraph<'b, Selector>) -> Self {
+impl<'a, BaseType: GraphNode, NodeType> LiveGraphRef<'a, BaseType, NodeType> {
+    pub fn new<'b: 'a>(graph_ref: GraphRef<NodeType>, subgraph: Subgraph<'b, BaseType>) -> Self {
         Self {
             graph_ref,
             subgraph,
         }
     }
 
-    pub fn get_subgraph<'b>(&self) -> Result<Subgraph<'b, Selector>>
+    pub fn get_subgraph<'b>(&self) -> Result<Subgraph<'b, BaseType>>
     where
         'a: 'b,
     {
@@ -137,19 +135,20 @@ impl<'a, Selector, NodeType> LiveGraphRef<'a, Selector, NodeType> {
     }
 }
 
-impl<'a, Selector, Node: GraphNode> LiveGraphRef<'a, Selector, Node>
+impl<'a, BaseType: GraphNode, Node: GraphNode> LiveGraphRef<'a, BaseType, Node>
 where
-    for<'c> &'c Node: TryFrom<&'c Selector, Error = Error>,
+    for<'c> &'c Node: TryFrom<&'c BaseType::DefaultSelector, Error = Error>,
 {
-    pub fn borrow(&self) -> Result<Node::LiveType<'a, Selector>> {
+    pub fn borrow(&self) -> Result<Node::LiveType<'a, BaseType>> {
         let subgraph = self.get_subgraph()?;
-        let selector: &Selector = subgraph.items.last().ok_or(Error::EmptyExpression)?;
+        let selector: &BaseType::DefaultSelector =
+            subgraph.items.last().ok_or(Error::EmptyExpression)?;
         let node: &Node = selector.try_into()?;
         Ok((*node).to_live_type(subgraph.clone()))
     }
 }
 
-impl<'a, Selector, LiveItem> Debug for LiveGraphRef<'a, Selector, LiveItem> {
+impl<'a, BaseType: GraphNode, LiveItem> Debug for LiveGraphRef<'a, BaseType, LiveItem> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LiveGraphRef")
             .field("rel_pos", &self.graph_ref.rel_pos)
@@ -168,7 +167,7 @@ impl<NodeType> Clone for GraphRef<NodeType> {
 
 impl<NodeType> Copy for GraphRef<NodeType> {}
 
-impl<'a, Selector> Clone for Subgraph<'a, Selector> {
+impl<'a, BaseType: GraphNode> Clone for Subgraph<'a, BaseType> {
     fn clone(&self) -> Self {
         Self {
             items: self.items.clone(),
@@ -194,8 +193,8 @@ impl<NodeType> From<usize> for GraphBuilderRef<NodeType> {
     }
 }
 
-impl<'a: 'b, 'b, Selector> From<&'a Graph<Selector>> for Subgraph<'b, Selector> {
-    fn from(g: &'a Graph<Selector>) -> Self {
+impl<'a: 'b, 'b, BaseType: GraphNode> From<&'a Graph<BaseType>> for Subgraph<'b, BaseType> {
+    fn from(g: &'a Graph<BaseType>) -> Self {
         Self { items: &g.items }
     }
 }

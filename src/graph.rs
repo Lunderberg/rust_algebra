@@ -94,7 +94,7 @@ where
     }
 }
 
-impl<Selector: GraphNodeSelector> Graph<Selector> {
+impl<Selector> Graph<Selector> {
     // Intentionally introduce OutLiveType as a deducible parameter,
     // rather than specifying the return type as
     // Result<Node::LiveType<'a>>.  Otherwise, the usage of the output

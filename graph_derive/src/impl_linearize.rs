@@ -216,30 +216,48 @@ fn generate_storage_try_from_selector_impl<'a>(
     referenced_enums: &'a Vec<syn::ItemEnum>,
 ) -> impl Iterator<Item = syn::Item> + 'a {
     let selector = &item.ident;
-    referenced_enums.iter().map(move |item_enum| {
-        let storage = &item_enum.ident;
-        let str_storage = format!("{storage}");
 
-        let stream = quote! {
-            impl<'a,'b:'a> TryFrom<&'b super::selector::#selector> for &'a #storage {
-                type Error = crate::Error;
+    let node_types: Vec<_> = referenced_enums
+        .iter()
+        .map(|item_enum| &item_enum.ident)
+        .cloned()
+        .collect();
 
-                fn try_from(val: &'b super::selector::#selector)
-                            -> Result<Self,Self::Error> {
-                    use ::algebra::graph::GraphNodeSelector;
-                    match val {
-                        super::selector::#selector::#storage(e) => Ok(e),
-                        _ => Err(Self::Error::IncorrectType{
-                            expected: #str_storage,
-                            actual: val.type_name(),
-                        })
+    referenced_enums
+        .iter()
+        .map(|item_enum| &item_enum.ident)
+        .map(move |node_type| {
+            let node_name = format!("{node_type}");
+
+            let (other_node_types, other_node_names): (Vec<_>, Vec<_>) = node_types
+                .iter()
+                .filter(|other_type| other_type != &node_type)
+                .map(|other_type| (other_type.clone(), format!("{other_type}")))
+                .unzip();
+
+            let stream = quote! {
+                impl<'a,'b:'a> TryFrom<&'b super::selector::#selector> for &'a #node_type {
+                    type Error = ::algebra::Error;
+
+                    fn try_from(val: &'b super::selector::#selector)
+                                -> Result<Self,Self::Error> {
+                        match val {
+                            super::selector::#selector::#node_type(e) => Ok(e),
+                            #(
+                                super::selector::#selector::#other_node_types(_) => {
+                                    Err(Self::Error::IncorrectType {
+                                        expected: #node_name,
+                                        actual: #other_node_names,
+                                    })
+                                }
+                            )*
+                        }
                     }
                 }
-            }
-        };
+            };
 
-        syn::parse2(stream).unwrap()
-    })
+            syn::parse2(stream).unwrap()
+        })
 }
 
 fn generate_live_enum(
@@ -319,38 +337,6 @@ fn generate_selector_enum(
         })
         .collect();
     std::iter::once(item.into())
-}
-
-fn generate_selector_trait_impl(
-    item: &syn::ItemEnum,
-    referenced_enums: &Vec<syn::ItemEnum>,
-) -> impl Iterator<Item = syn::Item> {
-    let name = &item.ident;
-
-    let referenced_names: Vec<String> = referenced_enums
-        .iter()
-        .map(|item_enum| {
-            let p = item_enum.ident.to_token_stream();
-            format!("{p}")
-        })
-        .collect();
-
-    let referenced_idents: Vec<&syn::Ident> = referenced_enums
-        .iter()
-        .map(|item_enum| &item_enum.ident)
-        .collect();
-
-    let stream = quote! {
-            impl ::algebra::graph::GraphNodeSelector for #name {
-                fn type_name(&self) -> &'static str {
-                    match self {
-                        #(Self::#referenced_idents(_) => #referenced_names,)*
-                    }
-                }
-            }
-    };
-
-    std::iter::once(syn::parse2(stream).expect("Error parsing generated selector trait"))
 }
 
 fn generate_selector_from_storage_impl<'a>(
@@ -542,11 +528,6 @@ pub fn linearize_recursive_enums(
             generate_live_enum_trait_impl,
         ))
         .chain(apply_generator(&enums, "selector", generate_selector_enum))
-        .chain(apply_generator(
-            &enums,
-            "selector",
-            generate_selector_trait_impl,
-        ))
         .chain(apply_generator(
             &enums,
             "selector",

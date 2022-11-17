@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use crate::{Error, Result};
+use crate::Error;
 
 #[derive(Debug)]
 pub struct Graph<BaseType: GraphNode> {
@@ -80,7 +80,7 @@ where
 {
     type Error = Error;
 
-    fn try_from(value: &'a Graph<BaseType>) -> Result<Self> {
+    fn try_from(value: &'a Graph<BaseType>) -> Result<Self, Self::Error> {
         let selector: &BaseType::DefaultSelector = value.items.last().unwrap();
         let _node: &NodeType = selector.try_into()?;
         let subgraph: Subgraph<BaseType> = value.into();
@@ -98,7 +98,7 @@ impl<BaseType: GraphNode> Graph<BaseType> {
     // value cannot be used to deduce the return type.
     pub fn borrow<'a, 'b: 'a, OutLiveType: LiveGraphNode<'a, BaseType>>(
         &'b self,
-    ) -> Result<OutLiveType>
+    ) -> Result<OutLiveType, Error>
     where
         for<'c> &'c OutLiveType::StorageType: TryFrom<&'c BaseType::DefaultSelector, Error = Error>,
     {
@@ -116,7 +116,7 @@ impl<'a, BaseType: GraphNode, NodeType> LiveGraphRef<'a, BaseType, NodeType> {
         }
     }
 
-    pub fn get_subgraph<'b>(&self) -> Result<Subgraph<'b, BaseType>>
+    pub fn get_subgraph<'b>(&self) -> Result<Subgraph<'b, BaseType>, Error>
     where
         'a: 'b,
     {
@@ -138,7 +138,7 @@ impl<'a, BaseType: GraphNode, Node: GraphNode> LiveGraphRef<'a, BaseType, Node>
 where
     for<'c> &'c Node: TryFrom<&'c BaseType::DefaultSelector, Error = Error>,
 {
-    pub fn borrow(&self) -> Result<Node::LiveType<'a, BaseType>> {
+    pub fn borrow(&self) -> Result<Node::LiveType<'a, BaseType>, Error> {
         let subgraph = self.get_subgraph()?;
         let selector: &BaseType::DefaultSelector =
             subgraph.items.last().ok_or(Error::EmptyExpression)?;

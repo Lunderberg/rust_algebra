@@ -120,7 +120,7 @@ fn generate_storage_enum(
                 let ident = &path.segments.last().unwrap().ident;
                 if self.referenced.contains(&ident) {
                     return syn::parse2(quote! {
-                        ::algebra::graph::GraphRef<#path>
+                        ::graph::GraphRef<#path>
                     })
                     .expect("Error parsing generated storage enum");
                 }
@@ -165,7 +165,7 @@ fn generate_storage_trait_impl<'a>(
                             let ident = format_ident!("field_{i}");
                             let stream = if is_recursive_type(&field.ty) {
                                 quote! {
-                                    ::algebra::graph::LiveGraphRef::new(*#ident, subgraph.clone())
+                                    ::graph::LiveGraphRef::new(*#ident, subgraph.clone())
                                 }
                             } else {
                                 quote! { *#ident }
@@ -192,14 +192,14 @@ fn generate_storage_trait_impl<'a>(
         .collect();
 
     let stream = quote! {
-        impl ::algebra::graph::GraphNode for #ident {
+        impl ::graph::GraphNode for #ident {
             type DefaultSelector = super::selector::#ident;
 
-            type LiveType<'a, BaseType: ::algebra::graph::GraphNode+ 'a> =
+            type LiveType<'a, BaseType: ::graph::GraphNode+ 'a> =
                 super::live::#ident<'a, BaseType>;
 
-            fn to_live_type<'a, BaseType: ::algebra::graph::GraphNode+ 'a>(
-                &self, subgraph: ::algebra::graph::Subgraph<'a, BaseType>
+            fn to_live_type<'a, BaseType: ::graph::GraphNode+ 'a>(
+                &self, subgraph: ::graph::Subgraph<'a, BaseType>
             ) -> Self::LiveType<'a, BaseType>
             where
                 for<'c> &'c Self: TryFrom<&'c BaseType::DefaultSelector> {
@@ -239,7 +239,7 @@ fn generate_storage_try_from_selector_impl<'a>(
 
             let stream = quote! {
                 impl<'a,'b:'a> TryFrom<&'b super::selector::#selector> for &'a #node_type {
-                    type Error = ::algebra::Error;
+                    type Error = ::graph::Error;
 
                     fn try_from(val: &'b super::selector::#selector)
                                 -> Result<Self,Self::Error> {
@@ -274,7 +274,7 @@ fn generate_live_enum(
         fn fold_generics(&mut self, generics: syn::Generics) -> syn::Generics {
             let params = generics.params;
             syn::parse2(quote! {
-                <'a, BaseType: ::algebra::graph::GraphNode, #params>
+                <'a, BaseType: ::graph::GraphNode, #params>
             })
             .expect("Error parsing generated generics for live enum")
         }
@@ -284,7 +284,7 @@ fn generate_live_enum(
                 let ident = &path.segments.last().unwrap().ident;
                 if self.referenced.contains(&ident) {
                     return syn::parse2(quote! {
-                        ::algebra::graph::LiveGraphRef<'a, BaseType, super::storage::#path>
+                        ::graph::LiveGraphRef<'a, BaseType, super::storage::#path>
                     })
                     .expect("Error parsing generated type for live enum");
                 }
@@ -312,11 +312,11 @@ fn generate_live_enum_trait_impl(
     let ident = &item_enum.ident;
 
     let stream = quote! {
-        impl<'a, BaseType: ::algebra::graph::GraphNode+ 'a>
-            ::algebra::graph::LiveGraphNode<'a, BaseType>
+        impl<'a, BaseType: ::graph::GraphNode+ 'a>
+            ::graph::LiveGraphNode<'a, BaseType>
             for #ident<'a, BaseType>
         where
-            super::storage::#ident: ::algebra::graph::GraphNode<LiveType<'a, BaseType> = Self>,
+            super::storage::#ident: ::graph::GraphNode<LiveType<'a, BaseType> = Self>,
         {
             type StorageType = super::storage::#ident;
         }
@@ -397,7 +397,7 @@ fn generate_typed_builder_trait<'a>(
                     if is_recursive_type(&field.ty) {
                         let ty = &field.ty;
                         let ty = syn::parse2(quote! {
-                            ::algebra::graph::GraphBuilderRef<super::storage::#ty>
+                            ::graph::GraphBuilderRef<super::storage::#ty>
                         })
                         .unwrap();
                         let param_expr = syn::parse2(quote! {
@@ -433,7 +433,7 @@ fn generate_typed_builder_trait<'a>(
             let arg_types = &info.arg_types;
             let stream = quote! {
                 fn #method_name(&mut self, #( #arg_names: #arg_types ),* )
-                                -> ::algebra::graph::GraphBuilderRef<super::storage::#ident>;
+                                -> ::graph::GraphBuilderRef<super::storage::#ident>;
             };
             syn::parse2(stream).expect("Error parsing generated trait method for builder")
         })
@@ -449,7 +449,7 @@ fn generate_typed_builder_trait<'a>(
             let param_exprs = &info.param_exprs;
             let stream = quote! {
                 fn #method_name(&mut self, #( #arg_names: #arg_types ),* )
-                                -> ::algebra::graph::GraphBuilderRef<super::storage::#ident> {
+                                -> ::graph::GraphBuilderRef<super::storage::#ident> {
                     self.push_top(super::storage::#ident::#variant_name(
                         #( #param_exprs ),*
                     ))
@@ -468,8 +468,8 @@ fn generate_typed_builder_trait<'a>(
     };
 
     let builder_trait_impl = quote! {
-        impl<BaseType: ::algebra::graph::GraphNode> #builder
-            for ::algebra::graph::Graph<BaseType>
+        impl<BaseType: ::graph::GraphNode> #builder
+            for ::graph::Graph<BaseType>
         where BaseType::DefaultSelector: From<super::storage::#ident>,
         {
             #![allow(non_snake_case)]
@@ -532,7 +532,7 @@ fn generate_overloaded_builder_trait<'a>(
                             let ty = &field.ty;
                             if is_recursive_type(ty) {
                                 syn::parse2(quote! {
-                                    ::algebra::graph::GraphBuilderRef<super::storage::#ty>
+                                    ::graph::GraphBuilderRef<super::storage::#ty>
                                 })
                                 .unwrap()
                             } else {
@@ -609,11 +609,13 @@ fn generate_overloaded_builder_trait<'a>(
             let generic_type_params = &overload_set.generic_type_params;
             let stream = quote! {
                 pub trait #dummy_trait_name< #( #generic_type_params ),* > {
+                    #![allow(non_snake_case)]
+
                     type OutNode;
                     fn #method_name(
-                        graph: &mut ::algebra::graph::Graph<super::storage::#base_type>,
+                        graph: &mut ::graph::Graph<super::storage::#base_type>,
                         #( #param_names: #generic_type_params, )*
-                    ) -> ::algebra::graph::GraphBuilderRef<Self::OutNode>;
+                    ) -> ::graph::GraphBuilderRef<Self::OutNode>;
                 }
             };
             syn::parse2(stream).expect("Error parsing overloaded dummy trait")
@@ -638,9 +640,9 @@ fn generate_overloaded_builder_trait<'a>(
                         impl #dummy_trait_name< #( #field_types ),* > for OverloadDummy {
                             type OutNode = super::storage::#storage_type;
                             fn #method_name (
-                                graph: &mut ::algebra::graph::Graph<super::storage::#base_type>,
+                                graph: &mut ::graph::Graph<super::storage::#base_type>,
                                 #( #param_names: #field_types, )*
-                            ) -> ::algebra::graph::GraphBuilderRef<Self::OutNode> {
+                            ) -> ::graph::GraphBuilderRef<Self::OutNode> {
                                 graph.#delegate( #(#param_names),* )
                             }
 
@@ -666,10 +668,12 @@ fn generate_overloaded_builder_trait<'a>(
 
             let stream = quote! {
                 pub trait #method_trait_name {
+                    #![allow(non_snake_case)]
+
                     fn #method_name< #( #generic_type_params ),* >(
                         &mut self,
                         #( #param_names: #generic_type_params, )*
-                    ) -> ::algebra::graph::GraphBuilderRef<<
+                    ) -> ::graph::GraphBuilderRef<<
                         OverloadDummy as #dummy_trait_name
                              < #( #generic_type_params ),* >
                         >::OutNode>
@@ -693,11 +697,11 @@ fn generate_overloaded_builder_trait<'a>(
             let generic_type_params = &overload_set.generic_type_params;
 
             let stream = quote! {
-                impl #method_trait_name for ::algebra::graph::Graph<super::storage::#base_type> {
+                impl #method_trait_name for ::graph::Graph<super::storage::#base_type> {
                     fn #method_name< #( #generic_type_params ),* >(
                         &mut self,
                         #( #param_names: #generic_type_params, )*
-                    ) -> ::algebra::graph::GraphBuilderRef<<
+                    ) -> ::graph::GraphBuilderRef<<
                             OverloadDummy as #dummy_trait_name
                                 < #( #generic_type_params ),* >
                             >::OutNode>

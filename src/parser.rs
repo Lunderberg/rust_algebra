@@ -1,7 +1,7 @@
 use std::iter::Peekable;
 use std::str::FromStr;
 
-use crate::{Element, Error, Expr, OperatorPrecedence, Result};
+use crate::{Element, Error, Expr, OperatorPrecedence};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Token {
@@ -23,7 +23,7 @@ where
 
 struct Parser<I>
 where
-    I: Iterator<Item = Result<Token>>,
+    I: Iterator<Item = Result<Token, Error>>,
 {
     tokens: Peekable<I>,
     items: Vec<Element>,
@@ -57,7 +57,7 @@ where
 
 impl<I> Parser<I>
 where
-    I: Iterator<Item = Result<Token>>,
+    I: Iterator<Item = Result<Token, Error>>,
 {
     fn new(iter: I) -> Self {
         Self {
@@ -79,11 +79,11 @@ where
             .flatten()
     }
 
-    fn expect_expr(&mut self) -> Result<()> {
+    fn expect_expr(&mut self) -> Result<(), Error> {
         self.expect_expr_precedence(OperatorPrecedence::Expr)
     }
 
-    fn expect_token(&mut self, expected: Token) -> Result<()> {
+    fn expect_token(&mut self, expected: Token) -> Result<(), Error> {
         self.tokens
             .next()
             .ok_or(Error::UnexpectedEndOfExpr)
@@ -97,11 +97,14 @@ where
             })
     }
 
-    fn expect_expr_precedence(&mut self, parent_precedence: OperatorPrecedence) -> Result<()> {
+    fn expect_expr_precedence(
+        &mut self,
+        parent_precedence: OperatorPrecedence,
+    ) -> Result<(), Error> {
         self.tokens
             .next()
             .ok_or(Error::UnexpectedEndOfExpr)?
-            .and_then(|token: Token| -> Result<Option<Element>> {
+            .and_then(|token: Token| -> Result<Option<Element>, Error> {
                 match token {
                     Token::IntLiteral(val) => Ok(Some(Element::Int(val))),
                     Token::Minus => self.try_int().map_or_else(
@@ -170,7 +173,7 @@ where
         Ok(())
     }
 
-    fn expect_end(&mut self) -> Result<()> {
+    fn expect_end(&mut self) -> Result<(), Error> {
         self.tokens.next().map_or_else(
             || Ok(()),
             |res| Err(res.map_or_else(|err| err, |token| Error::UnexpectedToken(token))),
@@ -181,7 +184,7 @@ where
 impl FromStr for Expr {
     type Err = Error;
 
-    fn from_str(s: &str) -> Result<Self> {
+    fn from_str(s: &str) -> Result<Self, Error> {
         let tokens = Tokenizer::new(s.chars());
         let mut parser = Parser::new(tokens);
 
@@ -198,9 +201,9 @@ impl<I> Iterator for Tokenizer<I>
 where
     I: Iterator<Item = char>,
 {
-    type Item = Result<Token>;
+    type Item = Result<Token, Error>;
 
-    fn next(&mut self) -> Option<Result<Token>> {
+    fn next(&mut self) -> Option<Result<Token, Error>> {
         self.iter
             .by_ref()
             .skip_while(|c| c.is_whitespace())
@@ -241,7 +244,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_parse_one_digit_int() -> Result<()> {
+    fn test_parse_one_digit_int() -> Result<(), Error> {
         let parsed: Expr = "5".parse()?;
         let expected = Expr {
             items: vec![Element::Int(5)],
@@ -251,7 +254,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_two_digit_int() -> Result<()> {
+    fn test_parse_two_digit_int() -> Result<(), Error> {
         let parsed: Expr = "42".parse()?;
         let expected = Expr {
             items: vec![Element::Int(42)],
@@ -261,7 +264,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_negative_int() -> Result<()> {
+    fn test_parse_negative_int() -> Result<(), Error> {
         let parsed: Expr = "-12".parse()?;
         let expected = Expr {
             items: vec![Element::Int(-12)],
@@ -271,7 +274,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_addition() -> Result<()> {
+    fn test_parse_addition() -> Result<(), Error> {
         let parsed: Expr = "5+10".parse()?;
         let expected = Expr {
             items: vec![Element::Int(5), Element::Int(10), Element::Add(2, 1)],
@@ -281,7 +284,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_addition_with_spaces() -> Result<()> {
+    fn test_parse_addition_with_spaces() -> Result<(), Error> {
         let parsed: Expr = "5 + 10".parse()?;
         let expected = Expr {
             items: vec![Element::Int(5), Element::Int(10), Element::Add(2, 1)],
@@ -291,7 +294,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_multiple_addition() -> Result<()> {
+    fn test_parse_multiple_addition() -> Result<(), Error> {
         let parsed: Expr = "5 + 10 + 15".parse()?;
         let expected = Expr {
             items: vec![
@@ -307,7 +310,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_subtraction() -> Result<()> {
+    fn test_parse_subtraction() -> Result<(), Error> {
         let parsed: Expr = "5 - 10".parse()?;
         let expected = Expr {
             items: vec![Element::Int(5), Element::Int(10), Element::Sub(2, 1)],
@@ -317,7 +320,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_mixed_addition_subtraction() -> Result<()> {
+    fn test_parse_mixed_addition_subtraction() -> Result<(), Error> {
         let parsed: Expr = "5 + 15 - 10".parse()?;
         let expected = Expr {
             items: vec![
@@ -333,7 +336,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_parentheses() -> Result<()> {
+    fn test_parse_parentheses() -> Result<(), Error> {
         let parsed: Expr = "5 + (15 - 10)".parse()?;
         let expected = Expr {
             items: vec![
@@ -349,7 +352,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_multiply() -> Result<()> {
+    fn test_parse_multiply() -> Result<(), Error> {
         let parsed: Expr = "5 * 10".parse()?;
         let expected = Expr {
             items: vec![Element::Int(5), Element::Int(10), Element::Mul(2, 1)],
@@ -359,7 +362,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_multiply_left_precedence() -> Result<()> {
+    fn test_parse_multiply_left_precedence() -> Result<(), Error> {
         let parsed: Expr = "5 * 10 + 15".parse()?;
         let expected = Expr {
             items: vec![
@@ -375,7 +378,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_multiply_right_precedence() -> Result<()> {
+    fn test_parse_multiply_right_precedence() -> Result<(), Error> {
         let parsed: Expr = "5 + 10 * 15".parse()?;
         let expected = Expr {
             items: vec![
@@ -391,7 +394,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_divide() -> Result<()> {
+    fn test_parse_divide() -> Result<(), Error> {
         let parsed: Expr = "5 / 10".parse()?;
         let expected = Expr {
             items: vec![Element::Int(5), Element::Int(10), Element::Div(2, 1)],
@@ -401,7 +404,7 @@ mod test {
     }
 
     #[test]
-    fn test_parse_mixed_multiply_divide() -> Result<()> {
+    fn test_parse_mixed_multiply_divide() -> Result<(), Error> {
         let parsed: Expr = "2 * 5 / 10 * 42".parse()?;
         let expected = Expr {
             items: vec![

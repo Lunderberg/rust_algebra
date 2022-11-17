@@ -2,8 +2,6 @@ use thiserror::Error;
 
 use crate::Token;
 
-pub type Result<T> = std::result::Result<T, Error>;
-
 #[derive(Error, Clone)]
 pub enum Error {
     #[error("Parse error")]
@@ -16,22 +14,18 @@ pub enum Error {
     UnexpectedToken(Token),
     #[error("Not yet implemented: {0}")]
     NotImplemented(String),
-    #[error("Invalid reference {rel_pos} in subgraph of size {subgraph_size}")]
-    InvalidReference {
-        rel_pos: usize,
-        subgraph_size: usize,
-    },
-    #[error("Expected type {expected}, but received {actual}")]
-    IncorrectType {
-        expected: &'static str,
-        actual: &'static str,
-    },
-    #[error("Empty expression")]
-    EmptyExpression,
+    #[error("GraphError: {0}")]
+    GraphError(graph::Error),
 }
 
 impl std::fmt::Debug for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self)
+    }
+}
+
+impl From<graph::Error> for Error {
+    fn from(value: graph::Error) -> Self {
+        Error::GraphError(value)
     }
 }

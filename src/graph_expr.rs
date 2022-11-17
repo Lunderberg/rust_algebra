@@ -55,7 +55,7 @@ use expr::storage::{BoolExpr, FloatExpr, IntExpr};
 mod test {
     use super::*;
     use crate::Error;
-    use crate::Graph;
+    use graph::Graph;
 
     #[test]
     fn test_graph_build_macro() -> Result<(), Error> {

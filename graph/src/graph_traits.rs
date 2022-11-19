@@ -3,6 +3,62 @@ use std::marker::PhantomData;
 
 use crate::Error;
 
+/// An element of a graph, whose types may recursively include each
+/// other.
+pub trait GraphNode {
+    /// A type which can be used to identify any of the recursively
+    /// defined types that may appear within a tree of this top-level
+    /// type.
+    ///
+    /// # Examples
+    ///
+    /// Consider the following recursively defined types.
+    ///
+    /// ```rust
+    /// #[recursive_graph]
+    /// mod example {
+    ///   enum BoolExpr {
+    ///       Bool(bool),
+    ///       And(BoolExpr, BoolExpr),
+    ///       IntEqual(IntExpr, IntExpr),
+    ///   }
+    ///
+    ///   enum IntExpr {
+    ///       Int(i64),
+    ///       Add(IntExpr, IntExpr),
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// Both `BoolExpr` and `IntExpr` may recursively contain
+    /// themselves.  However, a `BoolExpr` may also internally contain
+    /// `IntExpr`.  To store both in a contiguous data structure, an
+    /// element of that structure must be able to store either type.
+    /// In this example, the following enum could be used as the
+    /// `DefaultSelector`.
+    ///
+    /// ```rust
+    /// enum ExampleSelector {
+    ///     BoolExpr(BoolExpr),
+    ///     IntExpr(IntExpr),
+    /// }
+    /// ```
+    type DefaultSelector;
+
+    /// The corresponding node type when visiting the graph.
+    type LiveType<'a, BaseType: GraphNode + 'a>;
+
+    /// Given a subgraph, convert from a storage type to an live type.
+    /// That is, this method should convert all instances of
+    /// `GraphRef<T>` into `LiveGraphRef<'a, BaseType, T>`.
+    fn to_live_type<'a, BaseType: GraphNode + 'a>(
+        &self,
+        subgraph: Subgraph<'a, BaseType>,
+    ) -> Self::LiveType<'a, BaseType>
+    where
+        for<'c> &'c Self: TryFrom<&'c BaseType::DefaultSelector>;
+}
+
 #[derive(Debug)]
 pub struct Graph<BaseType: GraphNode> {
     items: Vec<BaseType::DefaultSelector>,
@@ -30,13 +86,6 @@ pub struct LiveGraphRef<'a, BaseType: GraphNode, NodeType: ?Sized> {
     graph_ref: GraphRef<NodeType>,
 }
 
-pub trait RawPtr {
-    type PointedTo;
-}
-impl<NodeType> RawPtr for *const NodeType {
-    type PointedTo = NodeType;
-}
-
 pub trait Reference {
     type TypedRef<Ptr: std::ops::Deref>;
 }
@@ -55,19 +104,6 @@ pub struct LiveReference<'a, BaseType: GraphNode> {
 
 impl<'a, BaseType: GraphNode> Reference for LiveReference<'a, BaseType> {
     type TypedRef<Ptr: std::ops::Deref> = LiveGraphRef<'a, BaseType, Ptr::Target>;
-}
-
-pub trait GraphNode {
-    type DefaultSelector;
-
-    type LiveType<'a, BaseType: GraphNode + 'a>;
-
-    fn to_live_type<'a, BaseType: GraphNode + 'a>(
-        &self,
-        subgraph: Subgraph<'a, BaseType>,
-    ) -> Self::LiveType<'a, BaseType>
-    where
-        for<'c> &'c Self: TryFrom<&'c BaseType::DefaultSelector>;
 }
 
 pub trait LiveGraphNode<'a, BaseType: GraphNode + 'a> {

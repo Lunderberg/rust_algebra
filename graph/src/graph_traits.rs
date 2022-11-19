@@ -14,25 +14,47 @@ pub struct Subgraph<'a, BaseType: GraphNode> {
 
 // Relative backreference to earlier node.  Used while traversing the
 // constructed graph.
-pub struct GraphRef<NodeType> {
+pub struct GraphRef<NodeType: ?Sized> {
     rel_pos: usize,
     _node: PhantomData<*const NodeType>,
 }
 
 // Absolute reference to node.  Used while constructing the graph.
-#[derive(Debug)]
 pub struct GraphBuilderRef<NodeType> {
     pos: usize,
     _node: PhantomData<*const NodeType>,
 }
 
-pub struct LiveGraphRef<'a, BaseType: GraphNode, NodeType> {
+pub struct LiveGraphRef<'a, BaseType: GraphNode, NodeType: ?Sized> {
     subgraph: Subgraph<'a, BaseType>,
     graph_ref: GraphRef<NodeType>,
 }
 
-pub trait LiveGraphNode<'a, BaseType: GraphNode + 'a> {
-    type StorageType: GraphNode<LiveType<'a, BaseType> = Self>;
+pub trait RawPtr {
+    type PointedTo;
+}
+impl<NodeType> RawPtr for *const NodeType {
+    type PointedTo = NodeType;
+}
+
+pub trait Reference {
+    type TypedRef<Ptr: std::ops::Deref>;
+}
+
+#[derive(Debug)]
+pub struct StorageReference;
+
+impl Reference for StorageReference {
+    type TypedRef<Ptr: std::ops::Deref> = GraphRef<Ptr::Target>;
+}
+
+#[derive(Debug)]
+pub struct LiveReference<'a, BaseType: GraphNode> {
+    _node: PhantomData<&'a BaseType>,
+}
+
+impl<'a, BaseType: GraphNode> Reference for LiveReference<'a, BaseType> {
+    type TypedRef<Ptr: std::ops::Deref> = LiveGraphRef<'a, BaseType, Ptr::Target>;
 }
 
 pub trait GraphNode {
@@ -46,6 +68,10 @@ pub trait GraphNode {
     ) -> Self::LiveType<'a, BaseType>
     where
         for<'c> &'c Self: TryFrom<&'c BaseType::DefaultSelector>;
+}
+
+pub trait LiveGraphNode<'a, BaseType: GraphNode + 'a> {
+    type StorageType: GraphNode<LiveType<'a, BaseType> = Self>;
 }
 
 impl<BaseType: GraphNode> Graph<BaseType> {
@@ -108,7 +134,7 @@ impl<BaseType: GraphNode> Graph<BaseType> {
     }
 }
 
-impl<'a, BaseType: GraphNode, NodeType> LiveGraphRef<'a, BaseType, NodeType> {
+impl<'a, BaseType: GraphNode, NodeType: GraphNode> LiveGraphRef<'a, BaseType, NodeType> {
     pub fn new<'b: 'a>(graph_ref: GraphRef<NodeType>, subgraph: Subgraph<'b, BaseType>) -> Self {
         Self {
             graph_ref,
@@ -147,7 +173,7 @@ where
     }
 }
 
-impl<'a, BaseType: GraphNode, LiveItem> Debug for LiveGraphRef<'a, BaseType, LiveItem> {
+impl<'a, BaseType: GraphNode, NodeType: GraphNode> Debug for LiveGraphRef<'a, BaseType, NodeType> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LiveGraphRef")
             .field("rel_pos", &self.graph_ref.rel_pos)

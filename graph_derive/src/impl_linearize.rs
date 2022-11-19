@@ -37,7 +37,7 @@ fn collect_annotated_enums(
             _ => false,
         });
 
-        let enums: Vec<syn::ItemEnum> = enums
+        let stripped_enums: Vec<(syn::ItemEnum, Vec<syn::Ident>)> = enums
             .into_iter()
             .map(|item: syn::Item| -> syn::ItemEnum {
                 if let syn::Item::Enum(item_enum) = item {
@@ -46,10 +46,6 @@ fn collect_annotated_enums(
                     panic!("List should only contain enums at this point")
                 }
             })
-            .collect();
-
-        let enums: Vec<(syn::ItemEnum, Vec<syn::Ident>)> = enums
-            .into_iter()
             .map(|mut item| {
                 let referred: Vec<syn::Ident> = item
                     .attrs
@@ -82,12 +78,12 @@ fn collect_annotated_enums(
             })
             .collect();
 
-        let lookup: HashMap<syn::Ident, syn::ItemEnum> = enums
+        let lookup: HashMap<syn::Ident, syn::ItemEnum> = stripped_enums
             .iter()
             .map(|(item_enum, _)| (item_enum.ident.clone(), item_enum.clone()))
             .collect();
 
-        let enums: Vec<(syn::ItemEnum, Vec<syn::ItemEnum>)> = enums
+        let enum_referents: Vec<(syn::ItemEnum, Vec<syn::ItemEnum>)> = stripped_enums
             .into_iter()
             .map(|(item_enum, idents)| {
                 let referenced = idents
@@ -100,45 +96,75 @@ fn collect_annotated_enums(
 
         item_mod.content = Some((brace, other));
 
-        (item_mod, enums)
+        (item_mod, enum_referents)
     } else {
         (item_mod, Vec::new())
     }
 }
 
+fn generate_import_generic_recursive_enum<'a>(
+    item_enum: &'a syn::ItemEnum,
+    _referenced_enums: &'a Vec<syn::ItemEnum>,
+) -> impl Iterator<Item = syn::Item> + 'a {
+    let ident = &item_enum.ident;
+    let stream = quote! {
+        pub use generic_enum::#ident;
+    };
+    std::iter::once(syn::parse2(stream).expect("Error parsing generated 'use' statement"))
+}
+
+fn generate_generic_recursive_enum<'a>(
+    item_enum: &'a syn::ItemEnum,
+    referenced_enums: &'a Vec<syn::ItemEnum>,
+) -> impl Iterator<Item = syn::Item> + 'a {
+    struct Mutator<F: Fn(&syn::Type) -> bool> {
+        is_recursive_type: F,
+    }
+
+    impl<F: Fn(&syn::Type) -> bool> Fold for Mutator<F> {
+        fn fold_generics(&mut self, generics: syn::Generics) -> syn::Generics {
+            let params = generics.params;
+            syn::parse2(quote! {
+                <Ref: ::graph::Reference, #params>
+            })
+            .expect("Error parsing generated generics for generated enum")
+        }
+
+        fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
+            if (self.is_recursive_type)(&ty) {
+                syn::parse2(quote! {
+                    Ref::TypedRef<Box<#ty<::graph::StorageReference>>>
+                })
+                .expect("Error parsing re-written recursive type for generic enum")
+            } else {
+                ty
+            }
+        }
+    }
+
+    let enum_def: syn::ItemEnum = Mutator {
+        is_recursive_type: recursive_type_checker(referenced_enums),
+    }
+    // .fold_item_enum({
+    //     let mut item_enum = item_enum.clone();
+    //     item_enum.attrs.clear();
+    //     item_enum
+    // });
+    .fold_item_enum(item_enum.clone());
+
+    std::iter::once(enum_def.into())
+}
+
 fn generate_storage_enum(
     item_enum: &syn::ItemEnum,
-    referenced: &Vec<syn::ItemEnum>,
+    _referenced: &Vec<syn::ItemEnum>,
 ) -> impl Iterator<Item = syn::Item> {
-    struct Mutator<'a> {
-        referenced: HashSet<&'a syn::Ident>,
-    }
-
-    impl<'a> Fold for Mutator<'a> {
-        fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
-            if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
-                let ident = &path.segments.last().unwrap().ident;
-                if self.referenced.contains(&ident) {
-                    return syn::parse2(quote! {
-                        ::graph::GraphRef<#path>
-                    })
-                    .expect("Error parsing generated storage enum");
-                }
-            }
-            ty
-        }
-    }
-
-    std::iter::once(
-        Mutator {
-            referenced: referenced
-                .iter()
-                .map(|item_enum| &item_enum.ident)
-                .collect(),
-        }
-        .fold_item_enum(item_enum.clone())
-        .into(),
-    )
+    let ident = &item_enum.ident;
+    let stream = quote! {
+        pub type #ident =
+            super::generic_enum::#ident<::graph::StorageReference>;
+    };
+    std::iter::once(syn::parse2(stream).unwrap())
 }
 
 fn generate_storage_trait_impl<'a>(
@@ -264,45 +290,16 @@ fn generate_storage_try_from_selector_impl<'a>(
 
 fn generate_live_enum(
     item_enum: &syn::ItemEnum,
-    referenced: &Vec<syn::ItemEnum>,
+    _referenced: &Vec<syn::ItemEnum>,
 ) -> impl Iterator<Item = syn::Item> {
-    struct Mutator<'a> {
-        referenced: HashSet<&'a syn::Ident>,
-    }
-
-    impl<'a> Fold for Mutator<'a> {
-        fn fold_generics(&mut self, generics: syn::Generics) -> syn::Generics {
-            let params = generics.params;
-            syn::parse2(quote! {
-                <'a, BaseType: ::graph::GraphNode, #params>
-            })
-            .expect("Error parsing generated generics for live enum")
-        }
-
-        fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
-            if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
-                let ident = &path.segments.last().unwrap().ident;
-                if self.referenced.contains(&ident) {
-                    return syn::parse2(quote! {
-                        ::graph::LiveGraphRef<'a, BaseType, super::storage::#path>
-                    })
-                    .expect("Error parsing generated type for live enum");
-                }
-            }
-            ty
-        }
-    }
-
-    std::iter::once(
-        Mutator {
-            referenced: referenced
-                .iter()
-                .map(|item_enum| &item_enum.ident)
-                .collect(),
-        }
-        .fold_item_enum(item_enum.clone())
-        .into(),
-    )
+    let ident = &item_enum.ident;
+    let stream = quote! {
+        pub type #ident<'a, BaseType> =
+            super::generic_enum::#ident<
+                    ::graph::LiveReference<'a,BaseType>
+                    >;
+    };
+    std::iter::once(syn::parse2(stream).unwrap())
 }
 
 fn generate_live_enum_trait_impl(
@@ -484,8 +481,8 @@ fn generate_typed_builder_trait<'a>(
 }
 
 fn generate_overload_dummy_struct<'a>(
-    module_name: &'a str,
-) -> impl Iterator<Item = (&'a str, syn::Item)> + 'a {
+    module_name: Option<&'a str>,
+) -> impl Iterator<Item = (Option<&'a str>, syn::Item)> + 'a {
     let stream = quote! {
         pub struct OverloadDummy;
     };
@@ -728,9 +725,9 @@ fn generate_overloaded_builder_trait<'a>(
 
 fn apply_generator<'a, G, I>(
     enums: &'a Vec<(syn::ItemEnum, Vec<syn::ItemEnum>)>,
-    dest_module: &'a str,
+    dest_module: Option<&'a str>,
     mut generator: G,
-) -> impl Iterator<Item = (&'a str, syn::Item)> + 'a
+) -> impl Iterator<Item = (Option<&'a str>, syn::Item)> + 'a
 where
     G: FnMut(&'a syn::ItemEnum, &'a Vec<syn::ItemEnum>) -> I + 'a,
     I: Iterator<Item = syn::Item>,
@@ -757,68 +754,97 @@ pub fn linearize_recursive_enums(
         })
         .collect();
 
-    let modules: Vec<_> = std::iter::empty::<(&str, syn::Item)>()
-        .chain(apply_generator(&enums, "storage", generate_storage_enum))
+    let orig_mod_other_content: Vec<syn::Item> = orig_mod
+        .content
+        .as_ref()
+        .iter()
+        .map(|(_brace, vec)| vec.into_iter())
+        .flatten()
+        .cloned()
+        .collect();
+
+    let modules: Vec<_> = std::iter::empty::<(Option<&str>, syn::Item)>()
         .chain(apply_generator(
             &enums,
-            "storage",
+            None,
+            generate_import_generic_recursive_enum,
+        ))
+        .chain(apply_generator(
+            &enums,
+            Some("generic_enum"),
+            generate_generic_recursive_enum,
+        ))
+        .chain(apply_generator(
+            &enums,
+            Some("storage"),
+            generate_storage_enum,
+        ))
+        .chain(apply_generator(
+            &enums,
+            Some("storage"),
             generate_storage_trait_impl,
         ))
         .chain(apply_generator(
             &enums,
-            "storage",
+            Some("storage"),
             generate_storage_try_from_selector_impl,
         ))
-        .chain(apply_generator(&enums, "live", generate_live_enum))
+        .chain(apply_generator(&enums, Some("live"), generate_live_enum))
         .chain(apply_generator(
             &enums,
-            "live",
+            Some("live"),
             generate_live_enum_trait_impl,
         ))
-        .chain(apply_generator(&enums, "selector", generate_selector_enum))
         .chain(apply_generator(
             &enums,
-            "selector",
+            Some("selector"),
+            generate_selector_enum,
+        ))
+        .chain(apply_generator(
+            &enums,
+            Some("selector"),
             generate_selector_from_storage_impl,
         ))
         .chain(apply_generator(
             &enums,
-            "builder",
+            Some("builder"),
             generate_typed_builder_trait,
         ))
-        .chain(generate_overload_dummy_struct("builder"))
+        .chain(generate_overload_dummy_struct(Some("builder")))
         .chain(apply_generator(
             &enums,
-            "builder",
+            Some("builder"),
             generate_overloaded_builder_trait,
         ))
         .into_group_map()
         .into_iter()
-        .map(|(name, items)| {
-            let mut item_mod = orig_mod.clone();
-            item_mod.ident = format_ident!("{}", name);
-            if !items.is_empty() {
-                let content = item_mod
-                    .content
-                    .map(|(_brace, vec)| vec.into_iter())
-                    .into_iter()
-                    .flatten()
-                    .chain(items.into_iter())
-                    .collect();
+        .map(|(opt_submodule_name, items)| {
+            if let Some(name) = opt_submodule_name {
+                let mut item_mod = orig_mod.clone();
+                item_mod.ident = format_ident!("{}", name);
+                if !items.is_empty() {
+                    let content = item_mod
+                        .content
+                        .map(|(_brace, vec)| vec.into_iter())
+                        .into_iter()
+                        .flatten()
+                        .chain(items.into_iter())
+                        .collect();
 
-                item_mod.content = Some((syn::token::Brace::default(), content));
+                    item_mod.content = Some((syn::token::Brace::default(), content));
+                }
+                item_mod.vis = syn::parse2(quote! {pub}).unwrap();
+                vec![item_mod.into()].into_iter()
+            } else {
+                items.into_iter()
             }
-            item_mod.vis = syn::parse2(quote! {pub}).unwrap();
-            item_mod
         })
+        .flatten()
         .collect();
 
     let mut out_mod = orig_mod;
-    let content = out_mod
-        .content
-        .map(|tuple| tuple.1.into_iter())
+    let content = orig_mod_other_content
         .into_iter()
-        .flatten()
         .chain(modules.into_iter().map(|item_mod| item_mod.into()))
         .collect();
     out_mod.content = Some((syn::token::Brace::default(), content));

@@ -46,6 +46,11 @@ pub trait GraphNode {
     type DefaultSelector;
 
     /// The corresponding node type when visiting the graph.
+    ///
+    /// # Arguments
+    ///
+    /// * `BaseType` - The expression type in which this graph node
+    /// occurs.
     type LiveType<'a, BaseType: GraphNode + 'a>;
 
     /// Given a subgraph, convert from a storage type to an live type.
@@ -59,37 +64,71 @@ pub trait GraphNode {
         for<'c> &'c Self: TryFrom<&'c BaseType::DefaultSelector>;
 }
 
+/// Owning container for a graph capable of containing `BaseType` or
+/// any type that `BaseType` refers to.
 #[derive(Debug)]
 pub struct Graph<BaseType: GraphNode> {
-    items: Vec<BaseType::DefaultSelector>,
+    pub(crate) items: Vec<BaseType::DefaultSelector>,
 }
 
+/// Non-owning view into a graph capable of containing `BaseNode`
 pub struct Subgraph<'a, BaseType: GraphNode> {
     items: &'a [BaseType::DefaultSelector],
 }
 
-// Relative backreference to earlier node.  Used while traversing the
-// constructed graph.
+/// Relative backreference to earlier node.  Used to represent
+/// references into recursively-defined structures in the linearized
+/// data storage.
 pub struct GraphRef<NodeType: ?Sized> {
+    /// The location of the referred-to node, relative to the node
+    /// holding the reference, in the direction of the start of the
+    /// `Graph`.
+    ///
+    /// `rel_pos` is unsigned, in order to avoid needing
+    /// loop-detection when walking through a graph.  In the
+    /// linearized structure, the index of a referent is strictly less
+    /// than the index of the node holding the reference, making
+    /// reference loops unrepresentable.
     rel_pos: usize,
     _node: PhantomData<*const NodeType>,
 }
 
-// Absolute reference to node.  Used while constructing the graph.
-pub struct GraphBuilderRef<NodeType> {
-    pos: usize,
-    _node: PhantomData<*const NodeType>,
-}
-
+/// Relative backreference to earlier node.  Used to represent
+/// references into recursively-defined structures while traversing
+/// the graph.
 pub struct LiveGraphRef<'a, BaseType: GraphNode, NodeType: ?Sized> {
+    /// The subgraph in which the reference points.  The reference is
+    /// relative to the last item in the subgraph.
     subgraph: Subgraph<'a, BaseType>,
+
+    /// The reference to be followed, relative to the last element in
+    /// `subgraph`.
     graph_ref: GraphRef<NodeType>,
 }
 
+/// Abstract across a type of references
+///
+/// Allows the same generic enum definition to be used both as a value
+/// type using `GraphRef<T>` instances for recursive references and as
+/// a lifetimed type using `LiveGraphRef<'a, BaseType, T>` for
+/// recursive references.
 pub trait Reference {
+    /// The representation to use for recursive references
+    ///
+    /// # Arguments
+    ///
+    /// `Ptr` - The reference to represent
+    ///
+    /// # Returns
+    ///
+    /// The representation of `Ptr::Target` for this reference type.
     type TypedRef<Ptr: std::ops::Deref>;
 }
 
+/// Reference suitable for storing
+///
+/// A reference category that uses `GraphRef<NodeType>` to represent
+/// recursive references.
 #[derive(Debug)]
 pub struct StorageReference;
 
@@ -97,6 +136,10 @@ impl Reference for StorageReference {
     type TypedRef<Ptr: std::ops::Deref> = GraphRef<Ptr::Target>;
 }
 
+/// Reference suitable for visiting subgraphs
+///
+/// A reference category that uses `LiveGraphRef<'a, BaseType,
+/// NodeType>` to represent recursive references.
 #[derive(Debug)]
 pub struct LiveReference<'a, BaseType: GraphNode> {
     _node: PhantomData<&'a BaseType>,
@@ -113,19 +156,6 @@ pub trait LiveGraphNode<'a, BaseType: GraphNode + 'a> {
 impl<BaseType: GraphNode> Graph<BaseType> {
     pub fn new() -> Self {
         Self { items: Vec::new() }
-    }
-
-    pub fn push_top<NodeType, Item: Into<BaseType::DefaultSelector>>(
-        &mut self,
-        item: Item,
-    ) -> GraphBuilderRef<NodeType> {
-        self.items.push(item.into());
-        (self.items.len() - 1).into()
-    }
-
-    pub fn backref<NodeType>(&self, abs_ref: GraphBuilderRef<NodeType>) -> GraphRef<NodeType> {
-        let rel_pos = self.items.len() - abs_ref.pos;
-        rel_pos.into()
     }
 }
 
@@ -154,10 +184,12 @@ where
 }
 
 impl<BaseType: GraphNode> Graph<BaseType> {
-    // Intentionally introduce OutLiveType as a deducible parameter,
-    // rather than specifying the return type as
-    // Result<Node::LiveType<'a>>.  Otherwise, the usage of the output
-    // value cannot be used to deduce the return type.
+    /// Borrow the top-level node, starting a recursive visit of the graph.
+    ///
+    /// Intentionally introduce OutLiveType as a deducible parameter,
+    /// rather than specifying the return type as
+    /// `Result<Node::LiveType<'a>>`.  This way, the usage of the
+    /// output value can be used to deduce the return type.
     pub fn borrow<'a, 'b: 'a, OutLiveType: LiveGraphNode<'a, BaseType>>(
         &'b self,
     ) -> Result<OutLiveType, Error>
@@ -200,6 +232,11 @@ impl<'a, BaseType: GraphNode, Node: GraphNode> LiveGraphRef<'a, BaseType, Node>
 where
     for<'c> &'c Node: TryFrom<&'c BaseType::DefaultSelector, Error = Error>,
 {
+    /// Recurse down a level of the graph
+    ///
+    /// When visiting a recursive graph, recursive references are
+    /// represented as `LiveGraphRef` instances.  Borrowing the
+    /// reference constructs the live type for the referenced type.
     pub fn borrow(&self) -> Result<Node::LiveType<'a, BaseType>, Error> {
         let subgraph = self.get_subgraph()?;
         let selector: &BaseType::DefaultSelector =
@@ -254,15 +291,6 @@ impl<NodeType> From<usize> for GraphRef<NodeType> {
     fn from(rel_pos: usize) -> Self {
         Self {
             rel_pos,
-            _node: PhantomData,
-        }
-    }
-}
-
-impl<NodeType> From<usize> for GraphBuilderRef<NodeType> {
-    fn from(pos: usize) -> Self {
-        Self {
-            pos,
             _node: PhantomData,
         }
     }

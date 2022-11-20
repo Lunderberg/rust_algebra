@@ -133,7 +133,7 @@ fn generate_generic_recursive_enum<'a>(
         fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
             if (self.is_recursive_type)(&ty) {
                 syn::parse2(quote! {
-                    Ref::TypedRef<Box<#ty<::graph::StorageReference>>>
+                    Ref::TypedRef<#ty<::graph::StorageReference>>
                 })
                 .expect("Error parsing re-written recursive type for generic enum")
             } else {

@@ -121,8 +121,9 @@ pub trait Reference {
     ///
     /// # Returns
     ///
-    /// The representation of `Ptr::Target` for this reference type.
-    type TypedRef<Ptr: std::ops::Deref>;
+    /// The representation of a recursive reference to `NodeType` for
+    /// this reference type.
+    type TypedRef<NodeType: ?Sized>;
 }
 
 /// Reference suitable for storing
@@ -133,7 +134,7 @@ pub trait Reference {
 pub struct StorageReference;
 
 impl Reference for StorageReference {
-    type TypedRef<Ptr: std::ops::Deref> = GraphRef<Ptr::Target>;
+    type TypedRef<NodeType: ?Sized> = GraphRef<NodeType>;
 }
 
 /// Reference suitable for visiting subgraphs
@@ -146,7 +147,7 @@ pub struct LiveReference<'a, BaseType: GraphNode> {
 }
 
 impl<'a, BaseType: GraphNode> Reference for LiveReference<'a, BaseType> {
-    type TypedRef<Ptr: std::ops::Deref> = LiveGraphRef<'a, BaseType, Ptr::Target>;
+    type TypedRef<NodeType: ?Sized> = LiveGraphRef<'a, BaseType, NodeType>;
 }
 
 pub trait LiveGraphNode<'a, BaseType: GraphNode + 'a> {

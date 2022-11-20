@@ -10,15 +10,6 @@ pub struct GraphBuilderRef<NodeType> {
     _node: PhantomData<*const NodeType>,
 }
 
-impl<NodeType> From<usize> for GraphBuilderRef<NodeType> {
-    fn from(pos: usize) -> Self {
-        Self {
-            pos,
-            _node: PhantomData,
-        }
-    }
-}
-
 impl<BaseType: GraphNode> Graph<BaseType> {
     // TODO: See if I can pass in a Enum<GraphBuilderRef> instead of
     // needing all the extra mechanisms for the builder traits
@@ -27,11 +18,17 @@ impl<BaseType: GraphNode> Graph<BaseType> {
         item: Item,
     ) -> GraphBuilderRef<NodeType> {
         self.items.push(item.into());
-        (self.items.len() - 1).into()
+        GraphBuilderRef {
+            pos: self.items.len() - 1,
+            _node: PhantomData,
+        }
     }
 
     pub fn backref<NodeType>(&self, abs_ref: GraphBuilderRef<NodeType>) -> GraphRef<NodeType> {
         let rel_pos = self.items.len() - abs_ref.pos;
-        rel_pos.into()
+        GraphRef {
+            rel_pos,
+            _node: PhantomData,
+        }
     }
 }

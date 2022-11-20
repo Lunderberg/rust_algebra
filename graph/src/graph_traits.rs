@@ -89,8 +89,8 @@ pub struct GraphRef<NodeType: ?Sized> {
     /// linearized structure, the index of a referent is strictly less
     /// than the index of the node holding the reference, making
     /// reference loops unrepresentable.
-    rel_pos: usize,
-    _node: PhantomData<*const NodeType>,
+    pub(crate) rel_pos: usize,
+    pub(crate) _node: PhantomData<*const NodeType>,
 }
 
 /// Relative backreference to earlier node.  Used to represent
@@ -176,9 +176,13 @@ where
         let selector: &BaseType::DefaultSelector = value.items.last().unwrap();
         let _node: &NodeType = selector.try_into()?;
         let subgraph: Subgraph<BaseType> = value.into();
+        let graph_ref = GraphRef {
+            rel_pos: 0,
+            _node: PhantomData,
+        };
         Ok(Self {
             subgraph,
-            graph_ref: 0.into(),
+            graph_ref,
         })
     }
 }
@@ -196,9 +200,13 @@ impl<BaseType: GraphNode> Graph<BaseType> {
     where
         for<'c> &'c OutLiveType::StorageType: TryFrom<&'c BaseType::DefaultSelector, Error = Error>,
     {
-        let graph_ref: LiveGraphRef<'a, BaseType, OutLiveType::StorageType> =
-            LiveGraphRef::new(0.into(), self.into());
-        graph_ref.borrow()
+        let graph_ref = GraphRef {
+            rel_pos: 0,
+            _node: PhantomData,
+        };
+        let live_graph_ref: LiveGraphRef<'a, BaseType, OutLiveType::StorageType> =
+            LiveGraphRef::new(graph_ref, self.into());
+        live_graph_ref.borrow()
     }
 }
 
@@ -283,15 +291,6 @@ impl<'a, BaseType: GraphNode> Clone for Subgraph<'a, BaseType> {
     fn clone(&self) -> Self {
         Self {
             items: self.items.clone(),
-        }
-    }
-}
-
-impl<NodeType> From<usize> for GraphRef<NodeType> {
-    fn from(rel_pos: usize) -> Self {
-        Self {
-            rel_pos,
-            _node: PhantomData,
         }
     }
 }

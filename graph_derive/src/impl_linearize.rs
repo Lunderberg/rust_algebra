@@ -125,7 +125,7 @@ fn generate_generic_recursive_enum<'a>(
         fn fold_generics(&mut self, generics: syn::Generics) -> syn::Generics {
             let params = generics.params;
             syn::parse2(quote! {
-                <Ref: ::graph::Reference, #params>
+                <Ref: ::graph::NodeUsage, #params>
             })
             .expect("Error parsing generated generics for generated enum")
         }
@@ -133,7 +133,7 @@ fn generate_generic_recursive_enum<'a>(
         fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
             if (self.is_recursive_type)(&ty) {
                 syn::parse2(quote! {
-                    Ref::TypedRef<#ty<::graph::StorageReference>>
+                    Ref::RefType<#ty<::graph::Storage>>
                 })
                 .expect("Error parsing re-written recursive type for generic enum")
             } else {
@@ -145,11 +145,6 @@ fn generate_generic_recursive_enum<'a>(
     let enum_def: syn::ItemEnum = Mutator {
         is_recursive_type: recursive_type_checker(referenced_enums),
     }
-    // .fold_item_enum({
-    //     let mut item_enum = item_enum.clone();
-    //     item_enum.attrs.clear();
-    //     item_enum
-    // });
     .fold_item_enum(item_enum.clone());
 
     std::iter::once(enum_def.into())
@@ -162,7 +157,7 @@ fn generate_storage_enum(
     let ident = &item_enum.ident;
     let stream = quote! {
         pub type #ident =
-            super::generic_enum::#ident<::graph::StorageReference>;
+            super::generic_enum::#ident<::graph::Storage>;
     };
     std::iter::once(syn::parse2(stream).unwrap())
 }
@@ -296,7 +291,7 @@ fn generate_live_enum(
     let stream = quote! {
         pub type #ident<'a, BaseType> =
             super::generic_enum::#ident<
-                    ::graph::LiveReference<'a,BaseType>
+                    ::graph::Live<'a,BaseType>
                     >;
     };
     std::iter::once(syn::parse2(stream).unwrap())

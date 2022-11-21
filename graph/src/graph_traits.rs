@@ -112,7 +112,7 @@ pub struct LiveGraphRef<'a, BaseType: GraphNode, NodeType: ?Sized> {
 /// type using `GraphRef<T>` instances for recursive references and as
 /// a lifetimed type using `LiveGraphRef<'a, BaseType, T>` for
 /// recursive references.
-pub trait Reference {
+pub trait NodeUsage {
     /// The representation to use for recursive references
     ///
     /// # Arguments
@@ -123,7 +123,7 @@ pub trait Reference {
     ///
     /// The representation of a recursive reference to `NodeType` for
     /// this reference type.
-    type TypedRef<NodeType: ?Sized>;
+    type RefType<NodeType: ?Sized>;
 }
 
 /// Reference suitable for storing
@@ -131,10 +131,10 @@ pub trait Reference {
 /// A reference category that uses `GraphRef<NodeType>` to represent
 /// recursive references.
 #[derive(Debug)]
-pub struct StorageReference;
+pub struct Storage;
 
-impl Reference for StorageReference {
-    type TypedRef<NodeType: ?Sized> = GraphRef<NodeType>;
+impl NodeUsage for Storage {
+    type RefType<NodeType: ?Sized> = GraphRef<NodeType>;
 }
 
 /// Reference suitable for visiting subgraphs
@@ -142,12 +142,12 @@ impl Reference for StorageReference {
 /// A reference category that uses `LiveGraphRef<'a, BaseType,
 /// NodeType>` to represent recursive references.
 #[derive(Debug)]
-pub struct LiveReference<'a, BaseType: GraphNode> {
+pub struct Live<'a, BaseType: GraphNode> {
     _node: PhantomData<&'a BaseType>,
 }
 
-impl<'a, BaseType: GraphNode> Reference for LiveReference<'a, BaseType> {
-    type TypedRef<NodeType: ?Sized> = LiveGraphRef<'a, BaseType, NodeType>;
+impl<'a, BaseType: GraphNode> NodeUsage for Live<'a, BaseType> {
+    type RefType<NodeType: ?Sized> = LiveGraphRef<'a, BaseType, NodeType>;
 }
 
 pub trait LiveGraphNode<'a, BaseType: GraphNode + 'a> {

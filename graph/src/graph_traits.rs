@@ -218,23 +218,6 @@ impl<'a, BaseType: GraphNode, NodeType: GraphNode> LiveGraphRef<'a, BaseType, No
             subgraph,
         }
     }
-
-    pub fn get_subgraph<'b>(&self) -> Result<Subgraph<'b, BaseType>, Error>
-    where
-        'a: 'b,
-    {
-        let index = self
-            .subgraph
-            .items
-            .len()
-            .checked_sub(self.graph_ref.rel_pos)
-            .ok_or(Error::InvalidReference {
-                rel_pos: self.graph_ref.rel_pos,
-                subgraph_size: self.subgraph.items.len(),
-            })?;
-        let items = &self.subgraph.items[0..index];
-        Ok(Subgraph { items })
-    }
 }
 
 impl<'a, BaseType: GraphNode, Node: GraphNode> LiveGraphRef<'a, BaseType, Node>
@@ -247,11 +230,19 @@ where
     /// represented as `LiveGraphRef` instances.  Borrowing the
     /// reference constructs the live type for the referenced type.
     pub fn borrow(&self) -> Result<Node::LiveType<'a, BaseType>, Error> {
-        let subgraph = self.get_subgraph()?;
-        let selector: &BaseType::DefaultSelector =
-            subgraph.items.last().ok_or(Error::EmptyExpression)?;
+        let index = self
+            .subgraph
+            .items
+            .len()
+            .checked_sub(self.graph_ref.rel_pos)
+            .ok_or(Error::InvalidReference {
+                rel_pos: self.graph_ref.rel_pos,
+                subgraph_size: self.subgraph.items.len(),
+            })?;
+        let items = &self.subgraph.items[0..index];
+        let selector: &BaseType::DefaultSelector = items.last().ok_or(Error::EmptyExpression)?;
         let node: &Node = selector.try_into()?;
-        Ok((*node).to_live_type(subgraph.clone()))
+        Ok((*node).to_live_type(Subgraph { items }))
     }
 }
 

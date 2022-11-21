@@ -137,7 +137,10 @@ fn generate_generic_recursive_enum<'a>(
                 })
                 .expect("Error parsing re-written recursive type for generic enum")
             } else {
-                ty
+                syn::parse2(quote! {
+                    Ref::ValueType<#ty>
+                })
+                .expect("Error parsing re-written recursive type for generic enum")
             }
         }
     }
@@ -189,7 +192,7 @@ fn generate_storage_trait_impl<'a>(
                                     ::graph::LiveGraphRef::new(*#ident, subgraph.clone())
                                 }
                             } else {
-                                quote! { *#ident }
+                                quote! { #ident }
                             };
                             let expr: syn::Expr =
                                 syn::parse2(stream).expect("Error parsing generated live field");
@@ -219,8 +222,8 @@ fn generate_storage_trait_impl<'a>(
             type LiveType<'a, BaseType: ::graph::GraphNode+ 'a> =
                 super::live::#ident<'a, BaseType>;
 
-            fn to_live_type<'a, BaseType: ::graph::GraphNode+ 'a>(
-                &self, subgraph: ::graph::Subgraph<'a, BaseType>
+            fn to_live_type<'a, 'b: 'a, BaseType: ::graph::GraphNode+ 'a>(
+                &'b self, subgraph: ::graph::Subgraph<'a, BaseType>
             ) -> Self::LiveType<'a, BaseType>
             where
                 for<'c> &'c Self: TryFrom<&'c BaseType::DefaultSelector> {

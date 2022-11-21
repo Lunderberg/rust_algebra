@@ -51,13 +51,15 @@ pub trait GraphNode {
     ///
     /// * `BaseType` - The expression type in which this graph node
     /// occurs.
-    type LiveType<'a, BaseType: GraphNode + 'a>;
+    type LiveType<'a, BaseType: GraphNode + 'a>
+    where
+        Self: 'a;
 
     /// Given a subgraph, convert from a storage type to an live type.
     /// That is, this method should convert all instances of
     /// `GraphRef<T>` into `LiveGraphRef<'a, BaseType, T>`.
-    fn to_live_type<'a, BaseType: GraphNode + 'a>(
-        &self,
+    fn to_live_type<'a, 'b: 'a, BaseType: GraphNode + 'a>(
+        &'b self,
         subgraph: Subgraph<'a, BaseType>,
     ) -> Self::LiveType<'a, BaseType>
     where
@@ -124,6 +126,18 @@ pub trait NodeUsage {
     /// The representation of a recursive reference to `NodeType` for
     /// this reference type.
     type RefType<NodeType: ?Sized>;
+
+    /// The representation to use for all other types
+    ///
+    /// # Arguments
+    ///
+    /// `T` - The value type to represent
+    ///
+    /// # Returns
+    ///
+    /// The representation of a value type `T` for this usage.
+    /// (e.g. `T` for storage, `&T` for visiting)
+    type ValueType<T: 'static>;
 }
 
 /// Reference suitable for storing
@@ -135,6 +149,7 @@ pub struct Storage;
 
 impl NodeUsage for Storage {
     type RefType<NodeType: ?Sized> = GraphRef<NodeType>;
+    type ValueType<T: 'static> = T;
 }
 
 /// Reference suitable for visiting subgraphs
@@ -148,10 +163,13 @@ pub struct Live<'a, BaseType: GraphNode> {
 
 impl<'a, BaseType: GraphNode> NodeUsage for Live<'a, BaseType> {
     type RefType<NodeType: ?Sized> = LiveGraphRef<'a, BaseType, NodeType>;
+    type ValueType<T: 'static> = &'a T;
 }
 
 pub trait LiveGraphNode<'a, BaseType: GraphNode + 'a> {
-    type StorageType: GraphNode<LiveType<'a, BaseType> = Self>;
+    type StorageType: GraphNode<LiveType<'a, BaseType> = Self>
+    where
+        Self: 'a;
 }
 
 impl<BaseType: GraphNode> Graph<BaseType> {
@@ -195,7 +213,7 @@ impl<BaseType: GraphNode> Graph<BaseType> {
     /// rather than specifying the return type as
     /// `Result<Node::LiveType<'a>>`.  This way, the usage of the
     /// output value can be used to deduce the return type.
-    pub fn borrow<'a, 'b: 'a, OutLiveType: LiveGraphNode<'a, BaseType>>(
+    pub fn borrow<'a, 'b: 'a, OutLiveType: LiveGraphNode<'a, BaseType> + 'a>(
         &'b self,
     ) -> Result<OutLiveType, Error>
     where

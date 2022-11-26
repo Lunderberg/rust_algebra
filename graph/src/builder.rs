@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{Graph, GraphNode, GraphRef};
+use crate::{GenericGraphNode, Graph, GraphRef, Storage};
 
 /// Absolute reference to node.  Used while constructing the graph.
 pub struct GraphBuilderRef<NodeType> {
@@ -10,7 +10,7 @@ pub struct GraphBuilderRef<NodeType> {
     _node: PhantomData<*const NodeType>,
 }
 
-impl<BaseType: GraphNode> Graph<BaseType> {
+impl<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> Graph<'a, BaseType> {
     // TODO: See if I can pass in a Enum<GraphBuilderRef> instead of
     // needing all the extra mechanisms for the builder traits
     pub fn push_top<NodeType, Item: Into<BaseType::DefaultSelector>>(

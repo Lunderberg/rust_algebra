@@ -125,7 +125,7 @@ fn generate_generic_recursive_enum<'a>(
         fn fold_generics(&mut self, generics: syn::Generics) -> syn::Generics {
             let params = generics.params;
             syn::parse2(quote! {
-                <Ref: ::graph::NodeUsage, #params>
+                <'a, Ref: ::graph::NodeUsage<'a> + 'a, #params>
             })
             .expect("Error parsing generated generics for generated enum")
         }
@@ -133,7 +133,7 @@ fn generate_generic_recursive_enum<'a>(
         fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
             if (self.is_recursive_type)(&ty) {
                 syn::parse2(quote! {
-                    Ref::RefType<#ty<::graph::Storage>>
+                    Ref::RefType<#ty<'a, ::graph::Storage<'a>>>
                 })
                 .expect("Error parsing re-written recursive type for generic enum")
             } else {
@@ -153,19 +153,7 @@ fn generate_generic_recursive_enum<'a>(
     std::iter::once(enum_def.into())
 }
 
-fn generate_storage_enum(
-    item_enum: &syn::ItemEnum,
-    _referenced: &Vec<syn::ItemEnum>,
-) -> impl Iterator<Item = syn::Item> {
-    let ident = &item_enum.ident;
-    let stream = quote! {
-        pub type #ident =
-            super::generic_enum::#ident<::graph::Storage>;
-    };
-    std::iter::once(syn::parse2(stream).unwrap())
-}
-
-fn generate_storage_trait_impl<'a>(
+fn generate_generic_node_trait_impl<'a>(
     item_enum: &'a syn::ItemEnum,
     referenced_enums: &'a Vec<syn::ItemEnum>,
 ) -> impl Iterator<Item = syn::Item> + 'a {
@@ -189,10 +177,10 @@ fn generate_storage_trait_impl<'a>(
                             let ident = format_ident!("field_{i}");
                             let stream = if is_recursive_type(&field.ty) {
                                 quote! {
-                                    ::graph::LiveGraphRef::new(*#ident, subgraph.clone())
+                                    converter.convert_reference( #ident )
                                 }
                             } else {
-                                quote! { #ident }
+                                quote! { converter.convert_value( #ident ) }
                             };
                             let expr: syn::Expr =
                                 syn::parse2(stream).expect("Error parsing generated live field");
@@ -201,14 +189,14 @@ fn generate_storage_trait_impl<'a>(
                         .unzip();
                     syn::parse2(quote! {
                         Self::#ident(#(#field_names),*) =>
-                            Self::LiveType::<'a, BaseType>::#ident(
+                            Self::WithRef::<NewRef>::#ident(
                                 #(#live_field_exprs),*
                             ),
                     })
                     .expect("Error parsing generated arm in match statement")
                 }
                 syn::Fields::Unit => syn::parse2(quote! {
-                    Self::#ident => Self::LiveType::<'a, BaseType>::#ident,
+                    Self::#ident => Self::LiveType::<BaseType>::#ident,
                 })
                 .unwrap(),
             }
@@ -216,17 +204,18 @@ fn generate_storage_trait_impl<'a>(
         .collect();
 
     let stream = quote! {
-        impl ::graph::GraphNode for #ident {
-            type DefaultSelector = super::selector::#ident;
+        impl<'a, Ref: ::graph::NodeUsage<'a>> ::graph::GenericGraphNode<'a, Ref> for #ident<'a, Ref> {
+            type DefaultSelector = super::selector::#ident<'a>;
 
-            type LiveType<'a, BaseType: ::graph::GraphNode+ 'a> =
-                super::live::#ident<'a, BaseType>;
+            type WithRef<NewRef: ::graph::NodeUsage<'a> + 'a> = #ident<'a, NewRef>;
 
-            fn to_live_type<'a, 'b: 'a, BaseType: ::graph::GraphNode+ 'a>(
-                &'b self, subgraph: ::graph::Subgraph<'a, BaseType>
-            ) -> Self::LiveType<'a, BaseType>
-            where
-                for<'c> &'c Self: TryFrom<&'c BaseType::DefaultSelector> {
+            fn convert_references<
+                    NewRef: ::graph::NodeUsage<'a>,
+                    Converter: ::graph::NodeUsageConverter<'a, Ref, NewRef>,
+                >(
+                &'a self,
+                converter: Converter,
+            ) -> Self::WithRef<NewRef> {
                 match self {
                     #(#live_type_arms)*
                 }
@@ -237,7 +226,19 @@ fn generate_storage_trait_impl<'a>(
     std::iter::once(syn::parse2(stream).expect("Error parsing generated storage trait"))
 }
 
-fn generate_storage_try_from_selector_impl<'a>(
+fn generate_storage_enum(
+    item_enum: &syn::ItemEnum,
+    _referenced: &Vec<syn::ItemEnum>,
+) -> impl Iterator<Item = syn::Item> {
+    let ident = &item_enum.ident;
+    let stream = quote! {
+        pub type #ident<'a> =
+            super::generic_enum::#ident<'a, ::graph::Storage<'a>>;
+    };
+    std::iter::once(syn::parse2(stream).unwrap())
+}
+
+fn generate_generic_enum_try_from_selector_impl<'a>(
     item: &'a syn::ItemEnum,
     referenced_enums: &'a Vec<syn::ItemEnum>,
 ) -> impl Iterator<Item = syn::Item> + 'a {
@@ -262,13 +263,15 @@ fn generate_storage_try_from_selector_impl<'a>(
                 .unzip();
 
             let stream = quote! {
-                impl<'a,'b:'a> TryFrom<&'b super::selector::#selector> for &'a #node_type {
+                impl<'a> TryFrom<&'a super::selector::#selector<'a>>
+                    for &'a #node_type<'a,::graph::Storage<'a>>
+                {
                     type Error = ::graph::Error;
 
-                    fn try_from(val: &'b super::selector::#selector)
+                    fn try_from(val: &'a super::selector::#selector<'a>)
                                 -> Result<Self,Self::Error> {
                         match val {
-                            super::selector::#selector::#node_type(e) => Ok(e),
+                            super::selector::#selector::<'a>::#node_type(e) => Ok(e),
                             #(
                                 super::selector::#selector::#other_node_types(_) => {
                                     Err(Self::Error::IncorrectType {
@@ -286,51 +289,20 @@ fn generate_storage_try_from_selector_impl<'a>(
         })
 }
 
-fn generate_live_enum(
-    item_enum: &syn::ItemEnum,
-    _referenced: &Vec<syn::ItemEnum>,
-) -> impl Iterator<Item = syn::Item> {
-    let ident = &item_enum.ident;
-    let stream = quote! {
-        pub type #ident<'a, BaseType> =
-            super::generic_enum::#ident<
-                    ::graph::Live<'a,BaseType>
-                    >;
-    };
-    std::iter::once(syn::parse2(stream).unwrap())
-}
-
-fn generate_live_enum_trait_impl(
-    item_enum: &syn::ItemEnum,
-    _referenced: &Vec<syn::ItemEnum>,
-) -> impl Iterator<Item = syn::Item> {
-    let ident = &item_enum.ident;
-
-    let stream = quote! {
-        impl<'a, BaseType: ::graph::GraphNode+ 'a>
-            ::graph::LiveGraphNode<'a, BaseType>
-            for #ident<'a, BaseType>
-        where
-            super::storage::#ident: ::graph::GraphNode<LiveType<'a, BaseType> = Self>,
-        {
-            type StorageType = super::storage::#ident;
-        }
-    };
-
-    std::iter::once(syn::parse2(stream).unwrap())
-}
-
 fn generate_selector_enum(
     item: &syn::ItemEnum,
     referenced_enums: &Vec<syn::ItemEnum>,
 ) -> impl Iterator<Item = syn::Item> {
     let mut item = item.clone();
+    item.generics.params = std::iter::once(syn::parse2(quote! { 'a }).unwrap())
+        .chain(item.generics.params.into_iter())
+        .collect();
     item.variants = referenced_enums
         .iter()
         .map(|referred_enum: &syn::ItemEnum| -> syn::Variant {
             let ident = &referred_enum.ident;
             syn::parse2::<syn::Variant>(quote! {
-                #ident(super::storage::#ident)
+                #ident(super::storage::#ident<'a>)
             })
             .expect("Error parsing generated selector enum")
         })
@@ -348,8 +320,8 @@ fn generate_selector_from_storage_impl<'a>(
         let ref_ident = &referenced_enum.ident;
 
         let stream = quote! {
-            impl From<super::storage::#ref_ident> for #name {
-                fn from(val: super::storage::#ref_ident) -> Self {
+            impl<'a> From<super::storage::#ref_ident<'a>> for #name<'a> {
+                fn from(val: super::storage::#ref_ident<'a>) -> Self {
                     Self::#ref_ident(val)
                 }
             }
@@ -392,7 +364,7 @@ fn generate_typed_builder_trait<'a>(
                     if is_recursive_type(&field.ty) {
                         let ty = &field.ty;
                         let ty = syn::parse2(quote! {
-                            ::graph::GraphBuilderRef<super::storage::#ty>
+                            ::graph::GraphBuilderRef<super::storage::#ty<'a>>
                         })
                         .unwrap();
                         let param_expr = syn::parse2(quote! {
@@ -428,7 +400,7 @@ fn generate_typed_builder_trait<'a>(
             let arg_types = &info.arg_types;
             let stream = quote! {
                 fn #method_name(&mut self, #( #arg_names: #arg_types ),* )
-                                -> ::graph::GraphBuilderRef<super::storage::#ident>;
+                                -> ::graph::GraphBuilderRef<super::storage::#ident<'a>>;
             };
             syn::parse2(stream).expect("Error parsing generated trait method for builder")
         })
@@ -444,7 +416,7 @@ fn generate_typed_builder_trait<'a>(
             let param_exprs = &info.param_exprs;
             let stream = quote! {
                 fn #method_name(&mut self, #( #arg_names: #arg_types ),* )
-                                -> ::graph::GraphBuilderRef<super::storage::#ident> {
+                                -> ::graph::GraphBuilderRef<super::storage::#ident<'a>> {
                     self.push_top(super::storage::#ident::#variant_name(
                         #( #param_exprs ),*
                     ))
@@ -455,7 +427,7 @@ fn generate_typed_builder_trait<'a>(
         .collect();
 
     let builder_trait = quote! {
-        pub trait #builder {
+        pub trait #builder<'a> {
             #![allow(non_snake_case)]
 
             #( #trait_methods )*
@@ -463,9 +435,10 @@ fn generate_typed_builder_trait<'a>(
     };
 
     let builder_trait_impl = quote! {
-        impl<BaseType: ::graph::GraphNode> #builder
-            for ::graph::Graph<BaseType>
-        where BaseType::DefaultSelector: From<super::storage::#ident>,
+        impl<'a, BaseType: ::graph::GenericGraphNode<'a,::graph::Storage<'a>>>
+            #builder<'a>
+            for ::graph::Graph<'a, BaseType>
+        where BaseType::DefaultSelector: From<super::storage::#ident<'a>>,
         {
             #![allow(non_snake_case)]
 
@@ -527,7 +500,7 @@ fn generate_overloaded_builder_trait<'a>(
                             let ty = &field.ty;
                             if is_recursive_type(ty) {
                                 syn::parse2(quote! {
-                                    ::graph::GraphBuilderRef<super::storage::#ty>
+                                    ::graph::GraphBuilderRef<super::storage::#ty<'a>>
                                 })
                                 .unwrap()
                             } else {
@@ -603,12 +576,12 @@ fn generate_overloaded_builder_trait<'a>(
             let param_names = &overload_set.param_names;
             let generic_type_params = &overload_set.generic_type_params;
             let stream = quote! {
-                pub trait #dummy_trait_name< #( #generic_type_params ),* > {
+                pub trait #dummy_trait_name<'a, #( #generic_type_params ),* > {
                     #![allow(non_snake_case)]
 
                     type OutNode;
                     fn #method_name(
-                        graph: &mut ::graph::Graph<super::storage::#base_type>,
+                        graph: &mut ::graph::Graph<'a, super::storage::#base_type<'a>>,
                         #( #param_names: #generic_type_params, )*
                     ) -> ::graph::GraphBuilderRef<Self::OutNode>;
                 }
@@ -632,10 +605,10 @@ fn generate_overloaded_builder_trait<'a>(
                     let storage_type = &overload.storage_type;
                     let delegate = format_ident!("{storage_type}_{method_name}");
                     let stream = quote! {
-                        impl #dummy_trait_name< #( #field_types ),* > for OverloadDummy {
-                            type OutNode = super::storage::#storage_type;
+                        impl<'a> #dummy_trait_name<'a, #( #field_types ),* > for OverloadDummy {
+                            type OutNode = super::storage::#storage_type<'a>;
                             fn #method_name (
-                                graph: &mut ::graph::Graph<super::storage::#base_type>,
+                                graph: &mut ::graph::Graph<'a, super::storage::#base_type<'a>>,
                                 #( #param_names: #field_types, )*
                             ) -> ::graph::GraphBuilderRef<Self::OutNode> {
                                 graph.#delegate( #(#param_names),* )
@@ -662,7 +635,7 @@ fn generate_overloaded_builder_trait<'a>(
             let generic_type_params = &overload_set.generic_type_params;
 
             let stream = quote! {
-                pub trait #method_trait_name {
+                pub trait #method_trait_name<'a> {
                     #![allow(non_snake_case)]
 
                     fn #method_name< #( #generic_type_params ),* >(
@@ -670,11 +643,11 @@ fn generate_overloaded_builder_trait<'a>(
                         #( #param_names: #generic_type_params, )*
                     ) -> ::graph::GraphBuilderRef<<
                         OverloadDummy as #dummy_trait_name
-                             < #( #generic_type_params ),* >
+                             <'a,  #( #generic_type_params ),* >
                         >::OutNode>
                     where
                         OverloadDummy: #dummy_trait_name
-                    < #( #generic_type_params ),* >;
+                    <'a,  #( #generic_type_params ),* >;
                 }
             };
             syn::parse2(stream).expect("Error parsing overloaded method trait")
@@ -692,19 +665,19 @@ fn generate_overloaded_builder_trait<'a>(
             let generic_type_params = &overload_set.generic_type_params;
 
             let stream = quote! {
-                impl #method_trait_name for ::graph::Graph<super::storage::#base_type> {
+                impl<'a> #method_trait_name<'a> for ::graph::Graph<'a, super::storage::#base_type<'a>> {
                     fn #method_name< #( #generic_type_params ),* >(
                         &mut self,
                         #( #param_names: #generic_type_params, )*
                     ) -> ::graph::GraphBuilderRef<<
                             OverloadDummy as #dummy_trait_name
-                                < #( #generic_type_params ),* >
+                                <'a,  #( #generic_type_params ),* >
                             >::OutNode>
                     where
                         OverloadDummy: #dummy_trait_name
-                        < #( #generic_type_params ),* > {
+                        <'a, #( #generic_type_params ),* > {
                         <OverloadDummy as #dummy_trait_name
-                         < #( #generic_type_params ),* >
+                         <'a, #( #generic_type_params ),* >
                         >::#method_name(self, #( #param_names ),* )
                     }
                 }
@@ -774,24 +747,18 @@ pub fn linearize_recursive_enums(
         ))
         .chain(apply_generator(
             &enums,
+            Some("generic_enum"),
+            generate_generic_node_trait_impl,
+        ))
+        .chain(apply_generator(
+            &enums,
+            Some("generic_enum"),
+            generate_generic_enum_try_from_selector_impl,
+        ))
+        .chain(apply_generator(
+            &enums,
             Some("storage"),
             generate_storage_enum,
-        ))
-        .chain(apply_generator(
-            &enums,
-            Some("storage"),
-            generate_storage_trait_impl,
-        ))
-        .chain(apply_generator(
-            &enums,
-            Some("storage"),
-            generate_storage_try_from_selector_impl,
-        ))
-        .chain(apply_generator(&enums, Some("live"), generate_live_enum))
-        .chain(apply_generator(
-            &enums,
-            Some("live"),
-            generate_live_enum_trait_impl,
         ))
         .chain(apply_generator(
             &enums,
@@ -820,6 +787,14 @@ pub fn linearize_recursive_enums(
             if let Some(name) = opt_submodule_name {
                 let mut item_mod = orig_mod.clone();
                 item_mod.ident = format_ident!("{}", name);
+                item_mod.attrs.push({
+                    let mut dummy: syn::ItemStruct = syn::parse2(quote! {
+                        #[allow(non_camel_case_types)]
+                        struct Dummy;
+                    })
+                    .unwrap();
+                    dummy.attrs.pop().unwrap()
+                });
                 if !items.is_empty() {
                     let content = item_mod
                         .content

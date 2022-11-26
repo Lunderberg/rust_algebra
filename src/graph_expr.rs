@@ -24,21 +24,21 @@ mod expr {
     // recursive types that are directly or indirectly reachable from
     // {name}.
 
-    #[derive(Debug)]
+    // #[derive(Debug)]
     enum IntExpr {
         Int(i64),
         Add(IntExpr, IntExpr),
         Sub(IntExpr, IntExpr),
     }
 
-    #[derive(Debug)]
+    // #[derive(Debug)]
     enum FloatExpr {
         Float(f64),
         Add(FloatExpr, FloatExpr),
         Sub(FloatExpr, FloatExpr),
     }
 
-    #[derive(Debug)]
+    // #[derive(Debug)]
     enum BoolExpr {
         Bool(bool),
         IntEqual(IntExpr, IntExpr),
@@ -118,23 +118,36 @@ mod test {
             builder
         };
 
-        let root = expr.borrow()?;
+        //let root = expr.borrow_root()?;
 
-        println!("Found int expression, {root:?}");
+        use graph::{Live, Storage};
+        let root = expr.borrow_root::<IntExpr<_>>()?;
+        //let root = expr.borrow_root::<IntExpr<Live<BoolExpr<Storage>>>>()?;
+
+        // use graph::{Live, Storage};
+        // let root: Result<IntExpr<Live<BoolExpr<Storage>>>, _> = expr.borrow_root();
+        // let root = root?;
+
+        // println!("Found int expression, {root:?}");
+        // match root {
+        //     IntExpr::Int(a) => {
+        //         println!("IntLiteral {a:?}")
+        //     }
+        //     IntExpr::Add(a, b) => {
+        //         println!("Addition of {a:?} and {b:?}")
+        //     }
+        //     IntExpr::Sub(a, b) => {
+        //         println!(
+        //             "Subtraction of {a:?} and {b:?}, which are {:?} and {:?}",
+        //             a.borrow()?,
+        //             b.borrow()?
+        //         )
+        //     }
+        // }
         match root {
-            IntExpr::Int(a) => {
-                println!("IntLiteral {a:?}")
-            }
-            IntExpr::Add(a, b) => {
-                println!("Addition of {a:?} and {b:?}")
-            }
-            IntExpr::Sub(a, b) => {
-                println!(
-                    "Subtraction of {a:?} and {b:?}, which are {:?} and {:?}",
-                    a.borrow()?,
-                    b.borrow()?
-                )
-            }
+            IntExpr::Int(_a) => {}
+            IntExpr::Add(_a, _b) => {}
+            IntExpr::Sub(_a, _b) => {}
         }
 
         Ok(())

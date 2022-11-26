@@ -1,33 +1,33 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use quote::{format_ident, quote, ToTokens};
 use syn::{fold::Fold, parse_macro_input};
 
 use itertools::Itertools;
 
-fn is_attr(path: &syn::Path, name: &str) -> bool {
-    path.segments.len() == 1 && path.segments[0].ident == name
+struct EnumInfo {
+    item_enum: syn::ItemEnum,
+    referenced_enums: Vec<syn::ItemEnum>,
 }
 
-fn recursive_type_checker(referenced_enums: &Vec<syn::ItemEnum>) -> impl Fn(&syn::Type) -> bool {
-    let referenced_names: HashSet<syn::Ident> = referenced_enums
-        .iter()
-        .map(|item_enum| item_enum.ident.clone())
-        .collect();
-    move |ty: &syn::Type| -> bool {
-        match ty {
-            syn::Type::Path(path) => {
-                let ident = &path.path.segments.last().unwrap().ident;
-                referenced_names.contains(ident)
-            }
-            _ => false,
+impl EnumInfo {
+    fn is_recursive_type(&self, ty: &syn::Type) -> bool {
+        if let syn::Type::Path(ty) = &ty {
+            let ty_ident = &ty.path.segments.last().unwrap().ident;
+            self.referenced_enums
+                .iter()
+                .any(|ref_enum| &ref_enum.ident == ty_ident)
+        } else {
+            false
         }
     }
 }
 
-fn collect_annotated_enums(
-    mut item_mod: syn::ItemMod,
-) -> (syn::ItemMod, Vec<(syn::ItemEnum, Vec<syn::ItemEnum>)>) {
+fn collect_annotated_enums(mut item_mod: syn::ItemMod) -> (syn::ItemMod, Vec<EnumInfo>) {
+    fn is_attr(path: &syn::Path, name: &str) -> bool {
+        path.segments.len() == 1 && path.segments[0].ident == name
+    }
+
     if let Some((brace, content)) = item_mod.content {
         let (enums, other): (Vec<_>, Vec<_>) = content.into_iter().partition(|item| match item {
             syn::Item::Enum(item) => item
@@ -83,45 +83,44 @@ fn collect_annotated_enums(
             .map(|(item_enum, _)| (item_enum.ident.clone(), item_enum.clone()))
             .collect();
 
-        let enum_referents: Vec<(syn::ItemEnum, Vec<syn::ItemEnum>)> = stripped_enums
+        let enum_info: Vec<EnumInfo> = stripped_enums
             .into_iter()
             .map(|(item_enum, idents)| {
-                let referenced = idents
+                let referenced_enums = idents
                     .into_iter()
                     .map(|ident| lookup.get(&ident).expect("Ident not in map").clone())
                     .collect();
-                (item_enum, referenced)
+                EnumInfo {
+                    item_enum,
+                    referenced_enums,
+                }
             })
             .collect();
 
         item_mod.content = Some((brace, other));
 
-        (item_mod, enum_referents)
+        (item_mod, enum_info)
     } else {
         (item_mod, Vec::new())
     }
 }
 
 fn generate_import_generic_recursive_enum<'a>(
-    item_enum: &'a syn::ItemEnum,
-    _referenced_enums: &'a Vec<syn::ItemEnum>,
+    info: &'a EnumInfo,
 ) -> impl Iterator<Item = syn::Item> + 'a {
-    let ident = &item_enum.ident;
+    let ident = &info.item_enum.ident;
     let stream = quote! {
         pub use generic_enum::#ident;
     };
     std::iter::once(syn::parse2(stream).expect("Error parsing generated 'use' statement"))
 }
 
-fn generate_generic_recursive_enum<'a>(
-    item_enum: &'a syn::ItemEnum,
-    referenced_enums: &'a Vec<syn::ItemEnum>,
-) -> impl Iterator<Item = syn::Item> + 'a {
-    struct Mutator<F: Fn(&syn::Type) -> bool> {
-        is_recursive_type: F,
+fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn::Item> + 'a {
+    struct Mutator<'a> {
+        info: &'a EnumInfo,
     }
 
-    impl<F: Fn(&syn::Type) -> bool> Fold for Mutator<F> {
+    impl<'a> Fold for Mutator<'a> {
         fn fold_generics(&mut self, generics: syn::Generics) -> syn::Generics {
             let params = generics.params;
             syn::parse2(quote! {
@@ -131,7 +130,7 @@ fn generate_generic_recursive_enum<'a>(
         }
 
         fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
-            if (self.is_recursive_type)(&ty) {
+            if self.info.is_recursive_type(&ty) {
                 syn::parse2(quote! {
                     Ref::RefType<#ty<'a, ::graph::Storage<'a>>>
                 })
@@ -145,23 +144,20 @@ fn generate_generic_recursive_enum<'a>(
         }
     }
 
-    let enum_def: syn::ItemEnum = Mutator {
-        is_recursive_type: recursive_type_checker(referenced_enums),
-    }
-    .fold_item_enum(item_enum.clone());
+    let mut item_enum: syn::ItemEnum = Mutator { info }.fold_item_enum(info.item_enum.clone());
 
-    std::iter::once(enum_def.into())
+    item_enum.vis = syn::parse2(quote! {pub}).unwrap();
+
+    std::iter::once(item_enum.into())
 }
 
 fn generate_generic_node_trait_impl<'a>(
-    item_enum: &'a syn::ItemEnum,
-    referenced_enums: &'a Vec<syn::ItemEnum>,
+    info: &'a EnumInfo,
 ) -> impl Iterator<Item = syn::Item> + 'a {
-    let is_recursive_type = recursive_type_checker(referenced_enums);
+    let ident = &info.item_enum.ident;
 
-    let ident = &item_enum.ident;
-
-    let live_type_arms: Vec<syn::Arm> = item_enum
+    let live_type_arms: Vec<syn::Arm> = info
+        .item_enum
         .variants
         .iter()
         .map(|var: &syn::Variant| -> syn::Arm {
@@ -175,7 +171,7 @@ fn generate_generic_node_trait_impl<'a>(
                         .enumerate()
                         .map(|(i, field)| {
                             let ident = format_ident!("field_{i}");
-                            let stream = if is_recursive_type(&field.ty) {
+                            let stream = if info.is_recursive_type(&field.ty) {
                                 quote! {
                                     converter.convert_reference( #ident )
                                 }
@@ -226,11 +222,8 @@ fn generate_generic_node_trait_impl<'a>(
     std::iter::once(syn::parse2(stream).expect("Error parsing generated storage trait"))
 }
 
-fn generate_storage_enum(
-    item_enum: &syn::ItemEnum,
-    _referenced: &Vec<syn::ItemEnum>,
-) -> impl Iterator<Item = syn::Item> {
-    let ident = &item_enum.ident;
+fn generate_storage_enum(info: &EnumInfo) -> impl Iterator<Item = syn::Item> {
+    let ident = &info.item_enum.ident;
     let stream = quote! {
         pub type #ident<'a> =
             super::generic_enum::#ident<'a, ::graph::Storage<'a>>;
@@ -239,25 +232,20 @@ fn generate_storage_enum(
 }
 
 fn generate_generic_enum_try_from_selector_impl<'a>(
-    item: &'a syn::ItemEnum,
-    referenced_enums: &'a Vec<syn::ItemEnum>,
+    info: &'a EnumInfo,
 ) -> impl Iterator<Item = syn::Item> + 'a {
-    let selector = &item.ident;
+    let selector = &info.item_enum.ident;
 
-    let node_types: Vec<_> = referenced_enums
-        .iter()
-        .map(|item_enum| &item_enum.ident)
-        .cloned()
-        .collect();
-
-    referenced_enums
+    info.referenced_enums
         .iter()
         .map(|item_enum| &item_enum.ident)
         .map(move |node_type| {
             let node_name = format!("{node_type}");
 
-            let (other_node_types, other_node_names): (Vec<_>, Vec<_>) = node_types
+            let (other_node_types, other_node_names): (Vec<_>, Vec<_>) = info
+                .referenced_enums
                 .iter()
+                .map(|item_enum| &item_enum.ident)
                 .filter(|other_type| other_type != &node_type)
                 .map(|other_type| (other_type.clone(), format!("{other_type}")))
                 .unzip();
@@ -289,15 +277,13 @@ fn generate_generic_enum_try_from_selector_impl<'a>(
         })
 }
 
-fn generate_selector_enum(
-    item: &syn::ItemEnum,
-    referenced_enums: &Vec<syn::ItemEnum>,
-) -> impl Iterator<Item = syn::Item> {
-    let mut item = item.clone();
-    item.generics.params = std::iter::once(syn::parse2(quote! { 'a }).unwrap())
-        .chain(item.generics.params.into_iter())
+fn generate_selector_enum(info: &EnumInfo) -> impl Iterator<Item = syn::Item> {
+    let mut selector = info.item_enum.clone();
+    selector.generics.params = std::iter::once(syn::parse2(quote! { 'a }).unwrap())
+        .chain(selector.generics.params.into_iter())
         .collect();
-    item.variants = referenced_enums
+    selector.variants = info
+        .referenced_enums
         .iter()
         .map(|referred_enum: &syn::ItemEnum| -> syn::Variant {
             let ident = &referred_enum.ident;
@@ -307,22 +293,24 @@ fn generate_selector_enum(
             .expect("Error parsing generated selector enum")
         })
         .collect();
-    std::iter::once(item.into())
+
+    selector.vis = syn::parse2(quote! {pub}).unwrap();
+
+    std::iter::once(selector.into())
 }
 
 fn generate_selector_from_storage_impl<'a>(
-    item: &'a syn::ItemEnum,
-    referenced_enums: &'a Vec<syn::ItemEnum>,
+    info: &'a EnumInfo,
 ) -> impl Iterator<Item = syn::Item> + 'a {
-    let name = &item.ident;
+    let selector = &info.item_enum.ident;
 
-    referenced_enums.iter().map(move |referenced_enum| {
-        let ref_ident = &referenced_enum.ident;
+    info.referenced_enums.iter().map(move |referenced_enum| {
+        let node = &referenced_enum.ident;
 
         let stream = quote! {
-            impl<'a> From<super::storage::#ref_ident<'a>> for #name<'a> {
-                fn from(val: super::storage::#ref_ident<'a>) -> Self {
-                    Self::#ref_ident(val)
+            impl<'a> From<super::storage::#node<'a>> for #selector<'a> {
+                fn from(val: super::storage::#node<'a>) -> Self {
+                    Self::#node(val)
                 }
             }
         };
@@ -331,14 +319,9 @@ fn generate_selector_from_storage_impl<'a>(
     })
 }
 
-fn generate_typed_builder_trait<'a>(
-    item_enum: &'a syn::ItemEnum,
-    referenced_enums: &'a Vec<syn::ItemEnum>,
-) -> impl Iterator<Item = syn::Item> + 'a {
-    let ident = &item_enum.ident;
+fn generate_typed_builder_trait<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn::Item> + 'a {
+    let ident = &info.item_enum.ident;
     let builder = format_ident!("{ident}Builder");
-
-    let is_recursive_type = recursive_type_checker(referenced_enums);
 
     struct MethodInfo {
         method_name: syn::Ident,
@@ -348,7 +331,8 @@ fn generate_typed_builder_trait<'a>(
         param_exprs: Vec<syn::Expr>,
     }
 
-    let info: Vec<MethodInfo> = item_enum
+    let method_info: Vec<MethodInfo> = info
+        .item_enum
         .variants
         .iter()
         .map(|var: &syn::Variant| -> MethodInfo {
@@ -361,7 +345,7 @@ fn generate_typed_builder_trait<'a>(
                 .enumerate()
                 .map(|(i, field)| -> (syn::Ident, syn::Type, syn::Expr) {
                     let arg_name = format_ident!("param{i}");
-                    if is_recursive_type(&field.ty) {
+                    if info.is_recursive_type(&field.ty) {
                         let ty = &field.ty;
                         let ty = syn::parse2(quote! {
                             ::graph::GraphBuilderRef<super::storage::#ty<'a>>
@@ -392,7 +376,7 @@ fn generate_typed_builder_trait<'a>(
         })
         .collect();
 
-    let trait_methods: Vec<syn::TraitItemMethod> = info
+    let trait_methods: Vec<syn::TraitItemMethod> = method_info
         .iter()
         .map(|info| {
             let method_name = &info.method_name;
@@ -406,7 +390,7 @@ fn generate_typed_builder_trait<'a>(
         })
         .collect();
 
-    let trait_method_impls: Vec<syn::ImplItemMethod> = info
+    let trait_method_impls: Vec<syn::ImplItemMethod> = method_info
         .iter()
         .map(|info| {
             let method_name = &info.method_name;
@@ -469,10 +453,9 @@ fn generate_overload_dummy_struct<'a>(
 }
 
 fn generate_overloaded_builder_trait<'a>(
-    item_enum: &'a syn::ItemEnum,
-    referenced_enums: &'a Vec<syn::ItemEnum>,
+    info: &'a EnumInfo,
 ) -> impl Iterator<Item = syn::Item> + 'a {
-    let base_type = &item_enum.ident;
+    let base_type = &info.item_enum.ident;
 
     #[derive(Debug)]
     struct MethodInfo {
@@ -490,9 +473,8 @@ fn generate_overloaded_builder_trait<'a>(
         overloads: Vec<MethodInfo>,
     }
 
-    let is_recursive_type = recursive_type_checker(referenced_enums);
-
-    let info: Vec<MethodInfo> = referenced_enums
+    let method_info: Vec<MethodInfo> = info
+        .referenced_enums
         .iter()
         .map(|ref_enum| {
             let storage_type = ref_enum.ident.clone();
@@ -505,7 +487,7 @@ fn generate_overloaded_builder_trait<'a>(
                         .iter()
                         .map(|field| {
                             let ty = &field.ty;
-                            if is_recursive_type(ty) {
+                            if info.is_recursive_type(ty) {
                                 syn::parse2(quote! {
                                     ::graph::GraphBuilderRef<super::storage::#ty<'a>>
                                 })
@@ -527,7 +509,7 @@ fn generate_overloaded_builder_trait<'a>(
         .flatten()
         .collect();
 
-    let overload_sets: Vec<OverloadSet> = info
+    let overload_sets: Vec<OverloadSet> = method_info
         .into_iter()
         .map(|overloads| (overloads.method_name.clone(), overloads))
         .into_group_map()
@@ -702,17 +684,17 @@ fn generate_overloaded_builder_trait<'a>(
 }
 
 fn apply_generator<'a, G, I>(
-    enums: &'a Vec<(syn::ItemEnum, Vec<syn::ItemEnum>)>,
+    enums: &'a Vec<EnumInfo>,
     dest_module: Option<&'a str>,
     mut generator: G,
 ) -> impl Iterator<Item = (Option<&'a str>, syn::Item)> + 'a
 where
-    G: FnMut(&'a syn::ItemEnum, &'a Vec<syn::ItemEnum>) -> I + 'a,
+    G: FnMut(&'a EnumInfo) -> I + 'a,
     I: Iterator<Item = syn::Item>,
 {
     enums
         .iter()
-        .map(move |(e, p)| generator(e, p))
+        .map(move |info| generator(info))
         .flatten()
         .map(move |item| (dest_module, item))
 }
@@ -724,13 +706,6 @@ pub fn linearize_recursive_enums(
     let orig: syn::ItemMod = parse_macro_input!(item as syn::ItemMod);
 
     let (orig_mod, enums) = collect_annotated_enums(orig);
-    let enums: Vec<_> = enums
-        .into_iter()
-        .map(|(mut item_enum, paths)| {
-            item_enum.vis = syn::parse2(quote! {pub}).unwrap();
-            (item_enum, paths)
-        })
-        .collect();
 
     let orig_mod_other_content: Vec<syn::Item> = orig_mod
         .content

@@ -3,12 +3,10 @@ use std::marker::PhantomData;
 
 use crate::{Error, Live, NodeUsage, NodeUsageConverter, Storage, StorageToLive};
 
-pub trait GenericGraphNode<'a, Ref: NodeUsage<'a> + 'a> {
-    type DefaultSelector: 'a;
+pub trait GenericGraphNode<'a, Ref: NodeUsage<'a>>: 'a {
+    type DefaultSelector;
 
-    type WithRef<NewRef: NodeUsage<'a> + 'a>: GenericGraphNode<'a, NewRef, WithRef<Ref> = Self>
-    where
-        Self: 'a;
+    type WithRef<NewRef: NodeUsage<'a>>: GenericGraphNode<'a, NewRef, WithRef<Ref> = Self>;
 
     fn convert_references<NewRef: NodeUsage<'a>, Converter: NodeUsageConverter<'a, Ref, NewRef>>(
         &'a self,
@@ -81,7 +79,7 @@ impl<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> Graph<'a, BaseType> {
     /// output value can be used to deduce the return type.
     pub fn borrow_root<OutLiveType>(&'a self) -> Result<OutLiveType, Error>
     where
-        OutLiveType: GenericGraphNode<'a, Live<'a, BaseType>> + 'a,
+        OutLiveType: GenericGraphNode<'a, Live<'a, BaseType>>,
 
         OutLiveType::WithRef<Storage<'a>>: GenericGraphNode<'a, Storage<'a>>,
 

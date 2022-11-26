@@ -8,7 +8,7 @@ use crate::{GenericGraphNode, GraphRef, LiveGraphRef, Subgraph};
 /// type using `GraphRef<T>` instances for recursive references and as
 /// a lifetimed type using `LiveGraphRef<'a, BaseType, T>` for
 /// recursive references.
-pub trait NodeUsage<'a> {
+pub trait NodeUsage<'a>: 'a {
     /// The representation to use for recursive references
     ///
     /// # Arguments

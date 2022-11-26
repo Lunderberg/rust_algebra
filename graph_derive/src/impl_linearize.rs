@@ -196,7 +196,7 @@ fn generate_generic_node_trait_impl<'a>(
                     .expect("Error parsing generated arm in match statement")
                 }
                 syn::Fields::Unit => syn::parse2(quote! {
-                    Self::#ident => Self::LiveType::<BaseType>::#ident,
+                    Self::#ident => Self::WithRef::<NewRef>::#ident,
                 })
                 .unwrap(),
             }
@@ -414,12 +414,19 @@ fn generate_typed_builder_trait<'a>(
             let arg_names = &info.arg_names;
             let arg_types = &info.arg_types;
             let param_exprs = &info.param_exprs;
+
+            let variant = if param_exprs.is_empty() {
+                quote! { super::storage::#ident::#variant_name }
+            } else {
+                quote! { super::storage::#ident::#variant_name
+                    ( #( #param_exprs ),* )
+                }
+            };
+
             let stream = quote! {
                 fn #method_name(&mut self, #( #arg_names: #arg_types ),* )
                                 -> ::graph::GraphBuilderRef<super::storage::#ident<'a>> {
-                    self.push_top(super::storage::#ident::#variant_name(
-                        #( #param_exprs ),*
-                    ))
+                    self.push_top( #variant )
                 }
             };
             syn::parse2(stream).expect("Error parsing generated trait impl for builder")

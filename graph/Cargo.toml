@@ -11,3 +11,6 @@ name = "graph"
 [dependencies]
 thiserror = "*"
 # itertools = "*"
+
+[dev-dependencies]
+graph_derive = { path = "../graph_derive" }

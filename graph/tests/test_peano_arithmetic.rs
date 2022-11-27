@@ -1,4 +1,4 @@
-use graph::{GenericGraphNode, Graph, Live, Storage};
+use graph::{GenericGraphNode, Graph, Live};
 use graph_derive::recursive_graph;
 
 #[recursive_graph]
@@ -9,7 +9,7 @@ mod peano {
     }
 }
 
-impl<'a> peano::Number<'a, Storage<'a>> {
+impl<'a> peano::Number<'a> {
     fn new(val: u8) -> Graph<'a, Self> {
         use peano::builder::*;
         let mut builder = Graph::new();
@@ -27,9 +27,8 @@ impl<'a> peano::Number<'a, Storage<'a>> {
 // user.
 impl<'a, BaseType> peano::Number<'a, Live<'a, BaseType>>
 where
-    BaseType: GenericGraphNode<'a, Storage<'a>>,
-    &'a peano::Number<'a, Storage<'a>>:
-        TryFrom<&'a BaseType::DefaultSelector, Error = graph::Error>,
+    BaseType: GenericGraphNode<'a>,
+    &'a peano::Number<'a>: TryFrom<&'a BaseType::DefaultSelector, Error = graph::Error>,
     // TODO: Why doesn't the equivalent TryInto trait allow
     // node.borrow() to be called?
     //

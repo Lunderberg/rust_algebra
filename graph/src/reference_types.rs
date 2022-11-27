@@ -62,27 +62,27 @@ impl<'a> NodeUsage<'a> for Storage<'a> {
 /// A reference category that uses `LiveGraphRef<'a, BaseType,
 /// NodeType>` to represent recursive references.
 #[derive(Debug)]
-pub struct Live<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> {
+pub struct Live<'a, BaseType: GenericGraphNode<'a>> {
     _node: PhantomData<&'a BaseType>,
 }
 
-impl<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> NodeUsage<'a> for Live<'a, BaseType> {
+impl<'a, BaseType: GenericGraphNode<'a>> NodeUsage<'a> for Live<'a, BaseType> {
     type RefType<NodeType: ?Sized> = LiveGraphRef<'a, BaseType, NodeType>;
     type ValueType<T: 'a> = &'a T;
 }
 
-pub struct StorageToLive<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> {
+pub struct StorageToLive<'a, BaseType: GenericGraphNode<'a>> {
     subgraph: Subgraph<'a, BaseType>,
 }
 
-impl<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> StorageToLive<'a, BaseType> {
+impl<'a, BaseType: GenericGraphNode<'a>> StorageToLive<'a, BaseType> {
     pub(crate) fn new(subgraph: Subgraph<'a, BaseType>) -> Self {
         Self { subgraph }
     }
 }
 
-impl<'a, BaseType: GenericGraphNode<'a, Storage<'a>>>
-    NodeUsageConverter<'a, Storage<'a>, Live<'a, BaseType>> for StorageToLive<'a, BaseType>
+impl<'a, BaseType: GenericGraphNode<'a>> NodeUsageConverter<'a, Storage<'a>, Live<'a, BaseType>>
+    for StorageToLive<'a, BaseType>
 {
     fn convert_reference<NodeType>(
         &self,

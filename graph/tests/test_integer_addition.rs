@@ -1,4 +1,4 @@
-use graph::{GenericGraphNode, Graph, Live, Storage};
+use graph::{GenericGraphNode, Graph, Live};
 use graph_derive::recursive_graph;
 
 #[recursive_graph]
@@ -21,10 +21,9 @@ mod expr {
 //     }
 // }
 
-impl<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> expr::IntExpr<'a, Live<'a, BaseType>>
+impl<'a, BaseType: GenericGraphNode<'a>> expr::IntExpr<'a, Live<'a, BaseType>>
 where
-    &'a expr::IntExpr<'a, Storage<'a>>:
-        TryFrom<&'a BaseType::DefaultSelector, Error = graph::Error>,
+    &'a expr::IntExpr<'a>: TryFrom<&'a BaseType::DefaultSelector, Error = graph::Error>,
 {
     fn eval(&self) -> i64 {
         use expr::IntExpr::*;

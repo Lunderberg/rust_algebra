@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 
 use crate::{Error, Live, NodeUsage, NodeUsageConverter, Storage, StorageToLive};
 
-pub trait GenericGraphNode<'a, Ref: NodeUsage<'a>>: 'a {
+pub trait GenericGraphNode<'a, Ref: NodeUsage<'a> = Storage<'a>>: 'a {
     type DefaultSelector;
 
     type WithRef<NewRef: NodeUsage<'a>>: GenericGraphNode<'a, NewRef, WithRef<Ref> = Self>;
@@ -17,12 +17,12 @@ pub trait GenericGraphNode<'a, Ref: NodeUsage<'a>>: 'a {
 /// Owning container for a graph capable of containing `BaseType` or
 /// any type that `BaseType` refers to.
 #[derive(Debug)]
-pub struct Graph<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> {
+pub struct Graph<'a, BaseType: GenericGraphNode<'a>> {
     pub(crate) items: Vec<BaseType::DefaultSelector>,
 }
 
 /// Non-owning view into a graph capable of containing `BaseNode`
-pub struct Subgraph<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> {
+pub struct Subgraph<'a, BaseType: GenericGraphNode<'a>> {
     items: &'a [BaseType::DefaultSelector],
 }
 
@@ -46,7 +46,7 @@ pub struct GraphRef<NodeType: ?Sized> {
 /// Relative backreference to earlier node.  Used to represent
 /// references into recursively-defined structures while traversing
 /// the graph.
-pub struct LiveGraphRef<'a, BaseType: GenericGraphNode<'a, Storage<'a>>, NodeType: ?Sized> {
+pub struct LiveGraphRef<'a, BaseType: GenericGraphNode<'a>, NodeType: ?Sized> {
     /// The subgraph in which the reference points.  The reference is
     /// relative to the last item in the subgraph.
     pub(crate) subgraph: Subgraph<'a, BaseType>,
@@ -56,13 +56,13 @@ pub struct LiveGraphRef<'a, BaseType: GenericGraphNode<'a, Storage<'a>>, NodeTyp
     pub(crate) graph_ref: GraphRef<NodeType>,
 }
 
-impl<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> Graph<'a, BaseType> {
+impl<'a, BaseType: GenericGraphNode<'a>> Graph<'a, BaseType> {
     pub fn new() -> Self {
         Self { items: Vec::new() }
     }
 }
 
-impl<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> From<Vec<BaseType::DefaultSelector>>
+impl<'a, BaseType: GenericGraphNode<'a>> From<Vec<BaseType::DefaultSelector>>
     for Graph<'a, BaseType>
 {
     fn from(items: Vec<BaseType::DefaultSelector>) -> Self {
@@ -70,7 +70,7 @@ impl<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> From<Vec<BaseType::Default
     }
 }
 
-impl<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> Graph<'a, BaseType> {
+impl<'a, BaseType: GenericGraphNode<'a>> Graph<'a, BaseType> {
     /// Borrow the top-level node, starting a recursive visit of the graph.
     ///
     /// Intentionally introduce OutLiveType as a deducible parameter,
@@ -81,10 +81,8 @@ impl<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> Graph<'a, BaseType> {
     where
         OutLiveType: GenericGraphNode<'a, Live<'a, BaseType>>,
 
-        OutLiveType::WithRef<Storage<'a>>: GenericGraphNode<'a, Storage<'a>>,
-
         OutLiveType::WithRef<Storage<'a>>:
-            GenericGraphNode<'a, Storage<'a>, WithRef<Live<'a, BaseType>> = OutLiveType>,
+            GenericGraphNode<'a, WithRef<Live<'a, BaseType>> = OutLiveType>,
 
         &'a OutLiveType::WithRef<Storage<'a>>:
             TryFrom<&'a BaseType::DefaultSelector, Error = Error>,
@@ -105,11 +103,8 @@ impl<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> Graph<'a, BaseType> {
     }
 }
 
-impl<
-        'a,
-        BaseType: GenericGraphNode<'a, Storage<'a>>,
-        NodeType: GenericGraphNode<'a, Storage<'a>>,
-    > LiveGraphRef<'a, BaseType, NodeType>
+impl<'a, BaseType: GenericGraphNode<'a>, NodeType: GenericGraphNode<'a>>
+    LiveGraphRef<'a, BaseType, NodeType>
 {
     pub fn new(graph_ref: GraphRef<NodeType>, subgraph: Subgraph<'a, BaseType>) -> Self {
         Self {
@@ -119,11 +114,8 @@ impl<
     }
 }
 
-impl<
-        'a,
-        BaseType: GenericGraphNode<'a, Storage<'a>>,
-        NodeType: GenericGraphNode<'a, Storage<'a>>,
-    > LiveGraphRef<'a, BaseType, NodeType>
+impl<'a, BaseType: GenericGraphNode<'a>, NodeType: GenericGraphNode<'a>>
+    LiveGraphRef<'a, BaseType, NodeType>
 {
     /// Recurse down a level of the graph
     ///
@@ -158,11 +150,8 @@ impl<
     }
 }
 
-impl<
-        'a,
-        BaseType: GenericGraphNode<'a, Storage<'a>>,
-        NodeType: GenericGraphNode<'a, Storage<'a>>,
-    > Debug for LiveGraphRef<'a, BaseType, NodeType>
+impl<'a, BaseType: GenericGraphNode<'a>, NodeType: GenericGraphNode<'a>> Debug
+    for LiveGraphRef<'a, BaseType, NodeType>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LiveGraphRef")
@@ -196,7 +185,7 @@ impl<NodeType> Clone for GraphRef<NodeType> {
 
 impl<NodeType> Copy for GraphRef<NodeType> {}
 
-impl<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> Clone for Subgraph<'a, BaseType> {
+impl<'a, BaseType: GenericGraphNode<'a>> Clone for Subgraph<'a, BaseType> {
     fn clone(&self) -> Self {
         Self {
             items: self.items.clone(),
@@ -207,8 +196,8 @@ impl<'a, BaseType: GenericGraphNode<'a, Storage<'a>>> Clone for Subgraph<'a, Bas
 impl<
         'a: 'b,
         'b,
-        InBaseType: GenericGraphNode<'a, Storage<'a>>,
-        OutBaseType: GenericGraphNode<'b, Storage<'b>, DefaultSelector = InBaseType::DefaultSelector>,
+        InBaseType: GenericGraphNode<'a>,
+        OutBaseType: GenericGraphNode<'b, DefaultSelector = InBaseType::DefaultSelector>,
     > From<&'a Graph<'a, InBaseType>> for Subgraph<'b, OutBaseType>
 {
     fn from(g: &'a Graph<'a, InBaseType>) -> Self {

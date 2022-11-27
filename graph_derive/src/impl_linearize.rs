@@ -193,14 +193,14 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
                 let (_, generic_args) = &self.info.user_defined_generics;
                 syn::parse2(quote! {
                     Ref::RefType<#ty<
-                            #lifetime, ::graph::Storage<#lifetime>
+                            #lifetime
                             #( , #generic_args )*
                         >>
                 })
                 .expect("Error parsing re-written recursive type for generic enum")
             } else if self.info.is_recursive_type(&ty) {
                 syn::parse2(quote! {
-                    Ref::RefType<#ty<#lifetime, ::graph::Storage<#lifetime>>>
+                    Ref::RefType<#ty<#lifetime>>
                 })
                 .expect("Error parsing re-written recursive type for generic enum")
             } else {
@@ -218,8 +218,9 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
     let mut item_enum: syn::ItemEnum = Mutator { info }.fold_item_enum(info.item_enum.clone());
 
     item_enum.generics = syn::parse2(quote! {
-        <#lifetime, Ref: ::graph::NodeUsage<#lifetime>
+        <#lifetime
          #( , #generic_params )*
+         , Ref: ::graph::NodeUsage<#lifetime> = ::graph::Storage<#lifetime>
          >
     })
     .expect("Error parsing generics for enum definition");
@@ -286,14 +287,14 @@ fn generate_generic_node_trait_impl<'a>(
     let lifetime = &info.view_lifetime;
     let (generic_params, generic_args) = &info.user_defined_generics;
     let stream = quote! {
-        impl<#lifetime, Ref: ::graph::NodeUsage<#lifetime>, #( #generic_params ),* >
+        impl<#lifetime #( , #generic_params )* , Ref: ::graph::NodeUsage<#lifetime> >
             ::graph::GenericGraphNode<#lifetime, Ref>
-            for #ident<#lifetime, Ref, #( #generic_args ),*>
+            for #ident<#lifetime #( , #generic_args )* , Ref>
         {
             type DefaultSelector = super::selector::#ident<#lifetime #( , #generic_args )* >;
 
             type WithRef<NewRef: ::graph::NodeUsage<#lifetime>> =
-                #ident<#lifetime, NewRef #( , #generic_args )*>;
+                #ident<#lifetime #( , #generic_args )* , NewRef>;
 
             fn convert_references<
                     NewRef: ::graph::NodeUsage<#lifetime>,
@@ -535,7 +536,7 @@ fn generate_typed_builder_trait<'a>(info: &'a EnumInfo) -> impl Iterator<Item = 
     };
 
     let builder_trait_impl = quote! {
-        impl<#lifetime, BaseType: ::graph::GenericGraphNode<#lifetime,::graph::Storage<#lifetime>>, #( #generic_params ),* >
+        impl<#lifetime, BaseType: ::graph::GenericGraphNode<#lifetime>, #( #generic_params ),* >
             #builder<#lifetime, #( #generic_args ),* >
             for ::graph::Graph<#lifetime, BaseType>
         where BaseType::DefaultSelector: From<

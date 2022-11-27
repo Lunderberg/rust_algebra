@@ -28,11 +28,7 @@ impl<'a> peano::Number<'a> {
 impl<'a, BaseType> peano::Number<'a, Live<'a, BaseType>>
 where
     BaseType: GenericGraphNode<'a>,
-    &'a peano::Number<'a>: TryFrom<&'a BaseType::DefaultSelector, Error = graph::Error>,
-    // TODO: Why doesn't the equivalent TryInto trait allow
-    // node.borrow() to be called?
-    //
-    //&'a BaseType::DefaultSelector: TryInto<&'a peano::Number<'a, Storage<'a>>>,
+    BaseType::DefaultSelector: graph::ContainerOf<'a, peano::Number<'a>>,
 {
     fn value(&self) -> usize {
         match self {

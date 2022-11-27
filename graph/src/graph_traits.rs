@@ -14,6 +14,11 @@ pub trait GenericGraphNode<'a, Ref: NodeUsage<'a> = Storage<'a>>: 'a {
     ) -> Self::WithRef<NewRef>;
 }
 
+pub trait ContainerOf<'a, NodeType> {
+    fn to_container(node: NodeType) -> Self;
+    fn from_container(&'a self) -> Result<&'a NodeType, Error>;
+}
+
 /// Owning container for a graph capable of containing `BaseType` or
 /// any type that `BaseType` refers to.
 #[derive(Debug)]
@@ -84,8 +89,7 @@ impl<'a, BaseType: GenericGraphNode<'a>> Graph<'a, BaseType> {
         OutLiveType::WithRef<Storage<'a>>:
             GenericGraphNode<'a, WithRef<Live<'a, BaseType>> = OutLiveType>,
 
-        &'a OutLiveType::WithRef<Storage<'a>>:
-            TryFrom<&'a BaseType::DefaultSelector, Error = Error>,
+        BaseType::DefaultSelector: ContainerOf<'a, OutLiveType::WithRef<Storage<'a>>>,
     {
         let subgraph: Subgraph<'a, BaseType> = self.into();
         let graph_ref: GraphRef<OutLiveType::WithRef<Storage<'a>>> = GraphRef {
@@ -122,14 +126,9 @@ impl<'a, BaseType: GenericGraphNode<'a>, NodeType: GenericGraphNode<'a>>
     /// When visiting a recursive graph, recursive references are
     /// represented as `LiveGraphRef` instances.  Borrowing the
     /// reference constructs the live type for the referenced type.
-    pub fn borrow(
-        &self,
-    ) -> Result<
-        NodeType::WithRef<Live<'a, BaseType>>,
-        <&'a NodeType as TryFrom<&'a BaseType::DefaultSelector>>::Error,
-    >
+    pub fn borrow(&self) -> Result<NodeType::WithRef<Live<'a, BaseType>>, Error>
     where
-        &'a NodeType: TryFrom<&'a BaseType::DefaultSelector, Error = Error>,
+        BaseType::DefaultSelector: ContainerOf<'a, NodeType>,
     {
         let index = self
             .subgraph
@@ -142,7 +141,7 @@ impl<'a, BaseType: GenericGraphNode<'a>, NodeType: GenericGraphNode<'a>>
             })?;
         let items = &self.subgraph.items[0..index];
         let selector: &BaseType::DefaultSelector = items.last().ok_or(Error::EmptyExpression)?;
-        let node: &NodeType = selector.try_into()?;
+        let node: &NodeType = selector.from_container()?;
         let subgraph = Subgraph { items };
         let converter = StorageToLive::new(subgraph);
         let live_node = node.convert_references(converter);

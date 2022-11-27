@@ -50,6 +50,31 @@ mod expr {
 
 use expr::{BoolExpr, IntExpr};
 
+mod temp {
+    use super::{BoolExpr, IntExpr};
+
+    pub trait ContainerOf<'a, NodeType: graph::GenericGraphNode<'a, graph::Storage<'a>>> {
+        fn to_container(node: NodeType) -> Self;
+        fn from_container(&'a self) -> Result<&'a NodeType, graph::Error>;
+    }
+
+    impl<'a> ContainerOf<'a, BoolExpr<'a>> for super::expr::selector::BoolExpr<'a> {
+        fn to_container(node: BoolExpr<'a>) -> Self {
+            Self::BoolExpr(node)
+        }
+
+        fn from_container(&'a self) -> Result<&'a BoolExpr<'a>, graph::Error> {
+            match self {
+                Self::BoolExpr(expr) => Ok(expr),
+                _ => Err(graph::Error::IncorrectType {
+                    expected: "BoolExpr",
+                    actual: "Something else",
+                }),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

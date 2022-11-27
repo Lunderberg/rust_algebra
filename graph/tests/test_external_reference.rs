@@ -12,8 +12,7 @@ mod expr {
 impl<'a: 'view, 'view, BaseType: GenericGraphNode<'view>>
     expr::IntExpr<'a, 'view, Live<'view, BaseType>>
 where
-    &'view expr::IntExpr<'a, 'view>:
-        TryFrom<&'view BaseType::DefaultSelector, Error = graph::Error>,
+    BaseType::DefaultSelector: graph::ContainerOf<'a, expr::IntExpr<'a, 'view>>,
 {
     fn eval(&self) -> i64 {
         use expr::IntExpr::*;

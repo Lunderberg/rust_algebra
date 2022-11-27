@@ -393,6 +393,64 @@ fn generate_selector_enum(info: &EnumInfo) -> impl Iterator<Item = syn::Item> {
     std::iter::once(selector.into())
 }
 
+fn generate_container_of_trait_impl<'a>(
+    info: &'a EnumInfo,
+) -> impl Iterator<Item = syn::Item> + 'a {
+    let ident = &info.item_enum.ident;
+    let lifetime = &info.view_lifetime;
+
+    info.referenced_enums
+        .iter()
+        .map(move |ref_enum| -> syn::Item {
+            let ref_ident = &ref_enum.ident;
+            let (generic_params, generic_args) = &info.user_defined_generics;
+
+            let (other_node_idents, other_node_str): (Vec<_>, Vec<_>) = info
+                .referenced_enums
+                .iter()
+                .map(|item_enum| &item_enum.ident)
+                .filter(|other_type| other_type != &ref_ident)
+                .map(|other_type| (other_type.clone(), format!("{other_type}")))
+                .unzip();
+
+            let ref_type = quote! {
+                super::generic_enum::#ref_ident<#lifetime #(, #generic_args)*>
+            };
+
+            let ref_str = format!("{ref_ident}");
+
+            let stream = quote! {
+                impl<#lifetime #(, #generic_params)*>
+                    ::graph::ContainerOf
+                        <#lifetime, #ref_type>
+                    for #ident
+                        <#lifetime #(, #generic_args)*>
+                {
+
+                    fn to_container(node: #ref_type) -> Self {
+                        Self::#ref_ident(node)
+                    }
+
+                    fn from_container(& #lifetime self) -> Result<& #lifetime #ref_type, ::graph::Error> {
+                        match self {
+                            Self::#ref_ident(expr) => Ok(expr),
+                            #(
+                                Self::#other_node_idents(_) => {
+                                    Err(::graph::Error::IncorrectType {
+                                        expected: #ref_str,
+                                        actual: #other_node_str,
+                                    })
+                                }
+                            )*
+                        }
+                    }
+                }
+            };
+
+            syn::parse2(stream).expect("Error parsing generated ContainerOf impl")
+        })
+}
+
 fn generate_selector_from_storage_impl<'a>(
     info: &'a EnumInfo,
 ) -> impl Iterator<Item = syn::Item> + 'a {
@@ -884,6 +942,11 @@ pub fn linearize_recursive_enums(
             &enums,
             Some("selector"),
             generate_selector_enum,
+        ))
+        .chain(apply_generator(
+            &enums,
+            Some("selector"),
+            generate_container_of_trait_impl,
         ))
         .chain(apply_generator(
             &enums,

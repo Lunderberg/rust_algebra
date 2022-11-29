@@ -10,10 +10,14 @@ mod graph2 {
     ////////////// Enable self-referential types //////////////
     ///////////////////////////////////////////////////////////
 
+    /// Usage type (e.g. Storage, Builder, Visitor)
     pub trait RecursiveRefType {
         type Ref<T: ?Sized>;
     }
 
+    /// Meta-object, at compile-time can generate an enum for a
+    /// specific usage type.  At runtime, can convert between enums
+    /// of different usage types.
     pub trait RecursiveObj {
         type Obj<R: RecursiveRefType>;
 
@@ -25,10 +29,21 @@ mod graph2 {
             Self::Obj<NewRef>: 'a;
     }
 
+    /// Convert between references of different usage types
+    /// (e.g. build a Storage enum from a Builder enum, or build a
+    /// Visitor enum from a Storage enum)
     pub trait RefTypeConverter<OldRef: RecursiveRefType, NewRef: RecursiveRefType> {
         fn convert_reference<T>(&self, old_ref: &OldRef::Ref<T>) -> NewRef::Ref<T>;
     }
 
+    /// Utility reference type, used to avoid infinite recursion at
+    /// compile-time.  This makes the types in the converter easier,
+    /// because both old and new types share the same internal
+    /// structures.  Converting `OldRef::Ref<Enum<NilRefType>>` to
+    /// `NewRef::Ref<Enum<NilRefType>>` only requires changing the
+    /// outer type, whereas converting `OldRef::Ref<Enum<OldRef>>` to
+    /// `NewRef::Ref<Enum<NewRef>>` would also require converting the
+    /// inner reference.
     pub struct NilRefType;
     impl RecursiveRefType for NilRefType {
         type Ref<T: ?Sized> = ();
@@ -38,13 +53,19 @@ mod graph2 {
     ////////////// Storage //////////////
     /////////////////////////////////////
 
+    /// A usage annotation for objects that may be stored in the
+    /// linearized structure.
     pub struct Storage;
 
     impl RecursiveRefType for Storage {
         type Ref<T: ?Sized> = StorageRef<T>;
     }
 
+    /// Represents a reference in the linearized structure.
     pub struct StorageRef<T: ?Sized> {
+        /// Position of the referred-to type, relative to the position
+        /// of the `RecursiveObj::Obj<Storage>` that holds the
+        /// `StorageRef`.
         rel_pos: usize,
         _node: PhantomData<*const T>,
     }
@@ -53,16 +74,34 @@ mod graph2 {
     ////////////// Owner //////////////
     ///////////////////////////////////
 
+    /// A container for an entire tree structure.  The container must
+    /// be able to represent any individual node type that may occur
+    /// within the tree.  These should be expected by implementing
+    /// `ContainerOf<Node>` for each type that may be contained.
     pub struct Owner<Container> {
         nodes: Vec<Container>,
     }
 
+    /// Exposes a type `T` as being potentially stored in a container
+    /// `Container`.
+    ///
+    /// This is effectively the same as `Container: From<T> +
+    /// TryInto<T>`, and may be replaced in the future, if that works
+    /// with type inference and doesn't require extra bounds to be
+    /// specified on the user side.
+    ///
+    /// - `trait_alias`: https://github.com/rust-lang/rust/issues/41517
+    /// - `implied_bounds`: https://github.com/rust-lang/rust/issues/44491
+    /// - `provide_any`: https://github.com/rust-lang/rust/issues/96024
     pub trait ContainerOf<T> {
         type Error;
         fn to_container(val: T) -> Self;
         fn from_container<'a>(&'a self) -> Result<&'a T, Self::Error>;
     }
 
+    /// Inverse of `ContainerOf`, marks a node type as being stored
+    /// inside a specific `Container`.  Automatically implemented in
+    /// terms of `ContainerOf`.
     pub trait ContainedBy<Container> {
         type Error;
         fn to_container(self) -> Container;
@@ -83,17 +122,23 @@ mod graph2 {
     ////////////// Builder //////////////
     /////////////////////////////////////
 
+    /// A constructor used to generate a `Owner<Container>`.
     pub struct Builder<Container> {
         output_graph: Owner<Container>,
     }
 
     impl<Container> Builder<Container> {
+        /// Constructs an empty `Builder`.
         pub fn new() -> Self {
             let output_graph = Owner { nodes: Vec::new() };
             Self { output_graph }
         }
     }
 
+    /// Reference type used while building a tree.  Any time the user
+    /// pushes a node into the builder, they receive a reference.
+    /// That reference may then be used to construct additional
+    /// builder nodes.
     pub struct BuilderRef<T: ?Sized> {
         abs_pos: usize,
         _node: PhantomData<*const T>,
@@ -104,9 +149,10 @@ mod graph2 {
     }
 
     impl<Container> Builder<Container> {
-        pub fn push<R: RecursiveObj<Obj<Builder<Container>> = T>, T>(
+        /// Insert a new node to the builder
+        pub fn push<R: RecursiveObj<Obj<Builder<Container>> = BuilderT>, BuilderT>(
             &mut self,
-            builder: T,
+            builder: BuilderT,
         ) -> BuilderRef<R::Obj<NilRefType>>
         where
             R::Obj<Storage>: ContainedBy<Container>,
@@ -127,6 +173,8 @@ mod graph2 {
     ////////////// Converters //////////////
     ////////////////////////////////////////
 
+    /// Converts from Builder references using absolute position to
+    /// Storage references using relative position.
     struct BuilderToStorage {
         size: usize,
     }

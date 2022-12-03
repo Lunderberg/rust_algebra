@@ -135,14 +135,13 @@ mod graph2 {
 
     /// A constructor used to generate a `Owner<Container>`.
     pub struct Builder<Container> {
-        output_graph: Owner<Container>,
+        nodes: Vec<Container>,
     }
 
     impl<Container> Builder<Container> {
         /// Constructs an empty `Builder`.
         pub fn new() -> Self {
-            let output_graph = Owner { nodes: Vec::new() };
-            Self { output_graph }
+            Self { nodes: Vec::new() }
         }
     }
 
@@ -169,11 +168,11 @@ mod graph2 {
             F::Obj<Storage>: ContainedBy<Container>,
             F: RecursiveFamily<Obj<Builder<Container>> = T>,
         {
-            let abs_pos = self.output_graph.nodes.len();
+            let abs_pos = self.nodes.len();
             let converter = BuilderToStorage { size: abs_pos };
             let storage_obj: F::Obj<Storage> = F::convert(&builder_obj, &converter);
             let container: Container = storage_obj.to_container();
-            self.output_graph.nodes.push(container);
+            self.nodes.push(container);
             BuilderRef {
                 abs_pos,
                 _node: PhantomData,
@@ -183,7 +182,9 @@ mod graph2 {
 
     impl<Container> From<Builder<Container>> for Owner<Container> {
         fn from(builder: Builder<Container>) -> Self {
-            builder.output_graph
+            Self {
+                nodes: builder.nodes,
+            }
         }
     }
 

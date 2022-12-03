@@ -36,7 +36,7 @@ mod graph2 {
     /// another type in the same family.  (e.g. `Builder::push`
     /// accepts an argument of type `F::Obj<Builder>` and must
     /// internally convert it to an object of type `F::Obj<Storage>`)
-    pub trait RecursiveObj<R: RecursiveRefType> {
+    pub trait RecursiveObj<R: RecursiveRefType = NilRefType> {
         type Family: RecursiveFamily;
         type DefaultContainer;
     }
@@ -91,8 +91,8 @@ mod graph2 {
     /// within the tree.  These should be expected by implementing
     /// `ContainerOf<Node>` for each type that may be contained.
     pub struct Owner<
-        RootNodeType: RecursiveObj<NilRefType>,
-        Container = <RootNodeType as RecursiveObj<NilRefType>>::DefaultContainer,
+        RootNodeType: RecursiveObj,
+        Container = <RootNodeType as RecursiveObj>::DefaultContainer,
     > {
         nodes: Vec<Container>,
         _phantom: PhantomData<*const RootNodeType>,
@@ -185,7 +185,7 @@ mod graph2 {
         }
     }
 
-    impl<RootNodeType: RecursiveObj<NilRefType>, Container> From<Builder<Container>>
+    impl<RootNodeType: RecursiveObj, Container> From<Builder<Container>>
         for Owner<RootNodeType, Container>
     {
         fn from(builder: Builder<Container>) -> Self {
@@ -229,9 +229,9 @@ pub mod peano {
 
     use super::graph2::*;
 
-    pub enum Number<R: RecursiveRefType> {
+    pub enum Number<R: RecursiveRefType = NilRefType> {
         Zero,
-        Successor(R::Ref<Number<NilRefType>>),
+        Successor(R::Ref<Number>),
     }
 
     pub struct NumberFamily;
@@ -323,7 +323,7 @@ fn construct_annotated() {
 
 #[test]
 fn construct_unannotated() {
-    let _three: graph2::Owner<peano::Number<_>> = {
+    let _three: graph2::Owner<peano::Number> = {
         let mut builder = graph2::Builder::new();
         let mut a = builder.push(peano::Number::Zero);
 

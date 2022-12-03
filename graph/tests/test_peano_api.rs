@@ -134,6 +134,24 @@ mod graph2 {
         }
     }
 
+    impl<
+            Family: RecursiveFamily,
+            RootNodeType: RecursiveObj<Family = Family>,
+            Error,
+            Container: ContainerOf<Family::Obj<Storage>, Error = Error>,
+        > Owner<RootNodeType, Container>
+    where
+        Family: RecursiveFamily<Obj<NilRefType> = RootNodeType>,
+    {
+        pub fn borrow(&self) -> Result<Family::Obj<Live<'_, Container>>, Error> {
+            let container: &Container = self.nodes.last().unwrap();
+            let node: &Family::Obj<Storage> = container.from_container()?;
+            let converter = StorageToLive { view: &self.nodes };
+            let live_ref = Family::convert(node, &converter);
+            Ok(live_ref)
+        }
+    }
+
     /////////////////////////////////////
     ////////////// Builder //////////////
     /////////////////////////////////////
@@ -213,6 +231,41 @@ mod graph2 {
 
     impl<'a, Container: 'a> RecursiveRefType for Live<'a, Container> {
         type Ref<T: ?Sized> = LiveRef<'a, T, Container>;
+    }
+
+    impl<
+            'a,
+            Family: RecursiveFamily,
+            T: RecursiveObj<Family = Family>,
+            Error: From<graph::Error>,
+            Container: ContainerOf<Family::Obj<Storage>, Error = Error>,
+        > LiveRef<'a, T, Container>
+    where
+        Family: RecursiveFamily<Obj<NilRefType> = T>,
+    {
+        pub fn borrow(&self) -> Result<Family::Obj<Live<'_, Container>>, Error> {
+            let self_index = self
+                .view
+                .len()
+                .checked_sub(1)
+                .ok_or(graph::Error::EmptyExpression)?;
+
+            let index =
+                self_index
+                    .checked_sub(self.rel_pos)
+                    .ok_or(graph::Error::InvalidReference {
+                        rel_pos: self.rel_pos,
+                        subgraph_size: self.view.len(),
+                    })?;
+
+            let container: &Container = &self.view[index];
+            let node: &Family::Obj<Storage> = container.from_container()?;
+            let converter = StorageToLive {
+                view: &self.view[..=index],
+            };
+            let live_ref = Family::convert(node, &converter);
+            Ok(live_ref)
+        }
     }
 
     ////////////////////////////////////////
@@ -371,6 +424,33 @@ fn construct_unannotated() {
 #[test]
 fn call_static_method() {
     let _three = graph2::Owner::<peano::Number>::new(3);
+}
+
+#[test]
+fn unpack_match_method() -> Result<(), graph::Error> {
+    let three = graph2::Owner::<peano::Number>::new(3);
+
+    use peano::Number;
+    let value = match three.borrow()? {
+        Number::Zero => 0,
+        Number::Successor(a) => match a.borrow()? {
+            Number::Zero => 1,
+            Number::Successor(b) => match b.borrow()? {
+                Number::Zero => 2,
+                Number::Successor(c) => match c.borrow()? {
+                    Number::Zero => 3,
+                    Number::Successor(d) => match d.borrow()? {
+                        Number::Zero => 4,
+                        Number::Successor(_) => panic!("Recursed too var in match"),
+                    },
+                },
+            },
+        },
+    };
+
+    assert_eq!(value, 3);
+
+    Ok(())
 }
 
 // #[test]

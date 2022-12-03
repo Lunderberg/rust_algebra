@@ -3,8 +3,6 @@
 
 #![allow(dead_code)]
 
-use std::fmt::Debug;
-
 mod graph2 {
     use std::marker::PhantomData;
 
@@ -112,26 +110,23 @@ mod graph2 {
     /// - `implied_bounds`: https://github.com/rust-lang/rust/issues/44491
     /// - `provide_any`: https://github.com/rust-lang/rust/issues/96024
     pub trait ContainerOf<T> {
-        type Error;
         fn to_container(val: T) -> Self;
-        fn from_container<'a>(&'a self) -> Result<&'a T, Self::Error>;
+        fn from_container<'a>(&'a self) -> Result<&'a T, graph::Error>;
     }
 
     /// Inverse of `ContainerOf`, marks a node type as being stored
     /// inside a specific `Container`.  Automatically implemented in
     /// terms of `ContainerOf`.
     pub trait ContainedBy<Container> {
-        type Error;
         fn to_container(self) -> Container;
-        fn from_container<'a>(container: &'a Container) -> Result<&'a Self, Self::Error>;
+        fn from_container<'a>(container: &'a Container) -> Result<&'a Self, graph::Error>;
     }
 
     impl<T, Container: ContainerOf<T>> ContainedBy<Container> for T {
-        type Error = Container::Error;
         fn to_container(self) -> Container {
             Container::to_container(self)
         }
-        fn from_container<'a>(container: &'a Container) -> Result<&'a Self, Self::Error> {
+        fn from_container<'a>(container: &'a Container) -> Result<&'a Self, graph::Error> {
             container.from_container()
         }
     }
@@ -139,13 +134,12 @@ mod graph2 {
     impl<
             Family: RecursiveFamily,
             RootNodeType: RecursiveObj<Family = Family>,
-            Error,
-            Container: ContainerOf<Family::Obj<Storage>, Error = Error>,
+            Container: ContainerOf<Family::Obj<Storage>>,
         > Owner<RootNodeType, Container>
     where
         Family: RecursiveFamily<Obj<NilRefType> = RootNodeType>,
     {
-        pub fn borrow(&self) -> Result<Family::Obj<Live<'_, Container>>, Error> {
+        pub fn borrow(&self) -> Result<Family::Obj<Live<'_, Container>>, graph::Error> {
             let container: &Container = self.nodes.last().unwrap();
             let node: &Family::Obj<Storage> = container.from_container()?;
             let converter = StorageToLive { view: &self.nodes };
@@ -239,13 +233,12 @@ mod graph2 {
             'a,
             Family: RecursiveFamily,
             T: RecursiveObj<Family = Family>,
-            Error: From<graph::Error>,
-            Container: ContainerOf<Family::Obj<Storage>, Error = Error>,
+            Container: ContainerOf<Family::Obj<Storage>>,
         > LiveRef<'a, T, Container>
     where
         Family: RecursiveFamily<Obj<NilRefType> = T>,
     {
-        pub fn borrow(&self) -> Result<Family::Obj<Live<'_, Container>>, Error> {
+        pub fn borrow(&self) -> Result<Family::Obj<Live<'_, Container>>, graph::Error> {
             let self_index = self
                 .view
                 .len()
@@ -355,11 +348,10 @@ pub mod peano {
     }
 
     impl ContainerOf<Number<Storage>> for NumberContainer {
-        type Error = graph::Error;
         fn to_container(val: Number<Storage>) -> Self {
             Self::Number(val)
         }
-        fn from_container<'a>(&'a self) -> Result<&'a Number<Storage>, Self::Error> {
+        fn from_container<'a>(&'a self) -> Result<&'a Number<Storage>, graph::Error> {
             match self {
                 Self::Number(val) => Ok(val),
             }
@@ -378,11 +370,8 @@ impl graph2::Owner<peano::Number> {
     }
 }
 
-impl<
-        'a,
-        Error: From<graph::Error> + Debug,
-        Container: graph2::ContainerOf<peano::Number<graph2::Storage>, Error = Error> + 'a,
-    > peano::Number<graph2::Live<'a, Container>>
+impl<'a, Container: graph2::ContainerOf<peano::Number<graph2::Storage>> + 'a>
+    peano::Number<graph2::Live<'a, Container>>
 {
     fn value(&self) -> usize {
         match self {

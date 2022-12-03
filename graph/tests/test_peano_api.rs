@@ -38,6 +38,7 @@ mod graph2 {
     /// internally convert it to an object of type `F::Obj<Storage>`)
     pub trait RecursiveObj<R: RecursiveRefType> {
         type Family: RecursiveFamily;
+        type DefaultContainer;
     }
 
     /// Convert between references of different usage types
@@ -89,8 +90,12 @@ mod graph2 {
     /// be able to represent any individual node type that may occur
     /// within the tree.  These should be expected by implementing
     /// `ContainerOf<Node>` for each type that may be contained.
-    pub struct Owner<Container> {
+    pub struct Owner<
+        RootNodeType: RecursiveObj<NilRefType>,
+        Container = <RootNodeType as RecursiveObj<NilRefType>>::DefaultContainer,
+    > {
         nodes: Vec<Container>,
+        _phantom: PhantomData<*const RootNodeType>,
     }
 
     /// Exposes a type `T` as being potentially stored in a container
@@ -180,10 +185,13 @@ mod graph2 {
         }
     }
 
-    impl<Container> From<Builder<Container>> for Owner<Container> {
+    impl<RootNodeType: RecursiveObj<NilRefType>, Container> From<Builder<Container>>
+        for Owner<RootNodeType, Container>
+    {
         fn from(builder: Builder<Container>) -> Self {
             Self {
                 nodes: builder.nodes,
+                _phantom: PhantomData,
             }
         }
     }
@@ -249,6 +257,7 @@ pub mod peano {
 
     impl<R: RecursiveRefType> RecursiveObj<R> for <NumberFamily as RecursiveFamily>::Obj<R> {
         type Family = NumberFamily;
+        type DefaultContainer = NumberContainer;
     }
 
     pub enum NumberContainer {
@@ -298,7 +307,7 @@ pub mod peano {
 
 #[test]
 fn construct_annotated() {
-    let _three: graph2::Owner<peano::NumberContainer> = {
+    let _three: graph2::Owner<peano::Number<graph2::NilRefType>, peano::NumberContainer> = {
         let mut builder = graph2::Builder::<peano::NumberContainer>::new();
         let mut a: graph2::BuilderRef<peano::Number<_>> = builder.push::<peano::NumberFamily, _>(
             peano::Number::<graph2::Builder<peano::NumberContainer>>::Zero,
@@ -314,7 +323,7 @@ fn construct_annotated() {
 
 #[test]
 fn construct_unannotated() {
-    let _three: graph2::Owner<peano::NumberContainer> = {
+    let _three: graph2::Owner<peano::Number<_>> = {
         let mut builder = graph2::Builder::new();
         let mut a = builder.push(peano::Number::Zero);
 

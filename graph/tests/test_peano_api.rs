@@ -196,6 +196,25 @@ mod graph2 {
         }
     }
 
+    //////////////////////////////////////
+    //////////////   Live   //////////////
+    //////////////////////////////////////
+
+    pub struct Live<'a, Container> {
+        _a: PhantomData<&'a usize>,
+        _c: PhantomData<*const Container>,
+    }
+
+    pub struct LiveRef<'a, T: ?Sized, Container> {
+        rel_pos: usize,
+        view: &'a [Container],
+        _phantom: PhantomData<*const T>,
+    }
+
+    impl<'a, Container: 'a> RecursiveRefType for Live<'a, Container> {
+        type Ref<T: ?Sized> = LiveRef<'a, T, Container>;
+    }
+
     ////////////////////////////////////////
     ////////////// Converters //////////////
     ////////////////////////////////////////
@@ -215,6 +234,22 @@ mod graph2 {
             StorageRef {
                 rel_pos,
                 _node: PhantomData,
+            }
+        }
+    }
+
+    struct StorageToLive<'a, Container> {
+        view: &'a [Container],
+    }
+
+    impl<'a, Container: 'a> RefTypeConverter<Storage, Live<'a, Container>>
+        for StorageToLive<'a, Container>
+    {
+        fn convert_reference<T>(&self, old_ref: &StorageRef<T>) -> LiveRef<'a, T, Container> {
+            LiveRef {
+                rel_pos: old_ref.rel_pos,
+                view: self.view,
+                _phantom: PhantomData,
             }
         }
     }

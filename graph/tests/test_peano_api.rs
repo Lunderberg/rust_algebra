@@ -277,17 +277,16 @@ pub mod peano {
     }
 }
 
-// impl<'a> peano::Number<'a> {
-//     fn new(val: u8) -> Graph<'a, Self> {
-//         use peano::builder::*;
-//         let mut builder = Graph::new();
-//         let mut a = builder.Zero();
-//         for _ in 0..val {
-//             a = builder.Successor(a);
-//         }
-//         builder
-//     }
-// }
+impl graph2::Owner<peano::Number> {
+    fn new(val: u8) -> Self {
+        let mut builder = graph2::Builder::new();
+        let mut a = builder.push(peano::Number::Zero);
+        for _ in 0..val {
+            a = builder.push(peano::Number::Successor(a));
+        }
+        builder.into()
+    }
+}
 
 // impl<'a, BaseType> peano::Number<'a, Live<'a, BaseType>>
 // where
@@ -334,22 +333,10 @@ fn construct_unannotated() {
     };
 }
 
-// #[test]
-// fn construct_unannotated() {
-//     let _three = {
-//         let mut builder = graph2::Builder::<peano::NumberContainer>::new();
-//         let mut a = builder.push(peano::Number::Zero);
-//         for _ in 0..3 {
-//             a = builder.push(peano::Number::Successor(a));
-//         }
-//         builder
-//     };
-// }
-
-// #[test]
-// fn call_static_method() {
-//     let _three = peano::Number::new(3);
-// }
+#[test]
+fn call_static_method() {
+    let _three = graph2::Owner::<peano::Number>::new(3);
+}
 
 // #[test]
 // fn call_instance_method() {

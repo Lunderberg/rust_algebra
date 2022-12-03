@@ -19,7 +19,7 @@ mod graph2 {
     /// specific usage type.  At runtime, can convert between enums
     /// of different usage types.
     pub trait RecursiveFamily {
-        type Obj<R: RecursiveRefType>;
+        type Obj<R: RecursiveRefType>: RecursiveObj<R>;
 
         fn convert<'a, OldRef: RecursiveRefType, NewRef: RecursiveRefType + 'a>(
             old_obj: &'a Self::Obj<OldRef>,
@@ -27,6 +27,17 @@ mod graph2 {
         ) -> Self::Obj<NewRef>
         where
             Self::Obj<NewRef>: 'a;
+    }
+
+    /// A recursive object, belonging to a specific family of
+    /// recursive types, with a specific type in that family.  This
+    /// trait is automatically implemented, and is used for functions
+    /// that must derive their types from arguments, and return
+    /// another type in the same family.  (e.g. `Builder::push`
+    /// accepts an argument of type `F::Obj<Builder>` and must
+    /// internally convert it to an object of type `F::Obj<Storage>`)
+    pub trait RecursiveObj<R: RecursiveRefType> {
+        type Family: RecursiveFamily;
     }
 
     /// Convert between references of different usage types
@@ -150,22 +161,29 @@ mod graph2 {
 
     impl<Container> Builder<Container> {
         /// Insert a new node to the builder
-        pub fn push<F: RecursiveFamily<Obj<Builder<Container>> = BuilderT>, BuilderT>(
+        pub fn push<F: RecursiveFamily, T: RecursiveObj<Builder<Container>, Family = F>>(
             &mut self,
-            builder: BuilderT,
+            builder_obj: T,
         ) -> BuilderRef<F::Obj<NilRefType>>
         where
             F::Obj<Storage>: ContainedBy<Container>,
+            F: RecursiveFamily<Obj<Builder<Container>> = T>,
         {
             let abs_pos = self.output_graph.nodes.len();
             let converter = BuilderToStorage { size: abs_pos };
-            let storage: F::Obj<Storage> = F::convert(&builder, &converter);
-            let container: Container = storage.to_container();
+            let storage_obj: F::Obj<Storage> = F::convert(&builder_obj, &converter);
+            let container: Container = storage_obj.to_container();
             self.output_graph.nodes.push(container);
             BuilderRef {
                 abs_pos,
                 _node: PhantomData,
             }
+        }
+    }
+
+    impl<Container> From<Builder<Container>> for Owner<Container> {
+        fn from(builder: Builder<Container>) -> Self {
+            builder.output_graph
         }
     }
 
@@ -228,6 +246,10 @@ pub mod peano {
         }
     }
 
+    impl<R: RecursiveRefType> RecursiveObj<R> for <NumberFamily as RecursiveFamily>::Obj<R> {
+        type Family = NumberFamily;
+    }
+
     pub enum NumberContainer {
         Number(Number<Storage>),
     }
@@ -275,7 +297,7 @@ pub mod peano {
 
 #[test]
 fn construct_annotated() {
-    let _three = {
+    let _three: graph2::Owner<peano::NumberContainer> = {
         let mut builder = graph2::Builder::<peano::NumberContainer>::new();
         let mut a: graph2::BuilderRef<peano::Number<_>> = builder.push::<peano::NumberFamily, _>(
             peano::Number::<graph2::Builder<peano::NumberContainer>>::Zero,
@@ -285,19 +307,20 @@ fn construct_annotated() {
                 graph2::Builder<peano::NumberContainer>,
             >::Successor(a));
         }
-        builder
+        builder.into()
     };
 }
 
 #[test]
 fn construct_unannotated() {
-    let _three = {
-        let mut builder = graph2::Builder::<peano::NumberContainer>::new();
-        let mut a = builder.push::<peano::NumberFamily, _>(peano::Number::Zero);
+    let _three: graph2::Owner<peano::NumberContainer> = {
+        let mut builder = graph2::Builder::new();
+        let mut a = builder.push(peano::Number::Zero);
+
         for _ in 0..3 {
-            a = builder.push::<peano::NumberFamily, _>(peano::Number::Successor(a));
+            a = builder.push(peano::Number::Successor(a));
         }
-        builder
+        builder.into()
     };
 }
 

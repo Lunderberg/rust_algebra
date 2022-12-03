@@ -3,6 +3,8 @@
 
 #![allow(dead_code)]
 
+use std::fmt::Debug;
+
 mod graph2 {
     use std::marker::PhantomData;
 
@@ -376,21 +378,22 @@ impl graph2::Owner<peano::Number> {
     }
 }
 
-// impl<'a, BaseType> peano::Number<'a, Live<'a, BaseType>>
-// where
-//     BaseType: GenericGraphNode<'a>,
-//     BaseType::DefaultSelector: graph::ContainerOf<'a, peano::Number<'a>>,
-// {
-//     fn value(&self) -> usize {
-//         match self {
-//             peano::Number::Zero => 0,
-//             peano::Number::Successor(live_ref) => {
-//                 let num = live_ref.borrow().unwrap();
-//                 num.value() + 1
-//             }
-//         }
-//     }
-// }
+impl<
+        'a,
+        Error: From<graph::Error> + Debug,
+        Container: graph2::ContainerOf<peano::Number<graph2::Storage>, Error = Error> + 'a,
+    > peano::Number<graph2::Live<'a, Container>>
+{
+    fn value(&self) -> usize {
+        match self {
+            peano::Number::Zero => 0,
+            peano::Number::Successor(live_ref) => {
+                let num = live_ref.borrow().unwrap();
+                num.value() + 1
+            }
+        }
+    }
+}
 
 #[test]
 fn construct_annotated() {
@@ -453,9 +456,10 @@ fn unpack_match_method() -> Result<(), graph::Error> {
     Ok(())
 }
 
-// #[test]
-// fn call_instance_method() {
-//     let three = peano::Number::new(3);
-//     let root_node: peano::Number<_> = three.borrow_root().unwrap();
-//     assert_eq!(root_node.value(), 3);
-// }
+#[test]
+fn call_instance_method() -> Result<(), graph::Error> {
+    let three = graph2::Owner::<peano::Number>::new(3);
+    let value = three.borrow()?.value();
+    assert_eq!(value, 3);
+    Ok(())
+}

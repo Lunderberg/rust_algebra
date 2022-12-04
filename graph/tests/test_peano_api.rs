@@ -21,6 +21,8 @@ mod graph2 {
     pub trait RecursiveFamily {
         type Obj<R: RecursiveRefType>: RecursiveObj<RefType = R, Family = Self>;
 
+        type DefaultContainer;
+
         fn convert<'a, OldRef: RecursiveRefType, NewRef: RecursiveRefType + 'a>(
             old_obj: &'a Self::Obj<OldRef>,
             converter: &impl RefTypeConverter<OldRef, NewRef>,
@@ -39,7 +41,6 @@ mod graph2 {
     pub trait RecursiveObj {
         type Family: RecursiveFamily;
         type RefType: RecursiveRefType;
-        type DefaultContainer;
     }
 
     /// Convert between references of different usage types
@@ -93,7 +94,7 @@ mod graph2 {
     /// `ContainerOf<Node>` for each type that may be contained.
     pub struct TypedTree<
         RootNodeType: RecursiveObj,
-        Container = <RootNodeType as RecursiveObj>::DefaultContainer,
+        Container = <<RootNodeType as RecursiveObj>::Family as RecursiveFamily>::DefaultContainer,
     > {
         nodes: Vec<Container>,
         _phantom: PhantomData<*const RootNodeType>,
@@ -328,6 +329,8 @@ pub mod peano {
     impl RecursiveFamily for NumberFamily {
         type Obj<R: RecursiveRefType> = Number<R>;
 
+        type DefaultContainer = NumberContainer;
+
         fn convert<'a, OldRef: RecursiveRefType, NewRef: RecursiveRefType + 'a>(
             old_obj: &'a Self::Obj<OldRef>,
             converter: &impl RefTypeConverter<OldRef, NewRef>,
@@ -343,7 +346,6 @@ pub mod peano {
 
     impl<RefType: RecursiveRefType> RecursiveObj for Number<RefType> {
         type Family = NumberFamily;
-        type DefaultContainer = NumberContainer;
         type RefType = RefType;
     }
 

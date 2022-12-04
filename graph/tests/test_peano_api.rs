@@ -19,7 +19,7 @@ mod graph2 {
     /// specific usage type.  At runtime, can convert between enums
     /// of different usage types.
     pub trait RecursiveFamily {
-        type Obj<R: RecursiveRefType>: RecursiveObj<R>;
+        type Obj<R: RecursiveRefType>: RecursiveObj<RefType = R, Family = Self>;
 
         fn convert<'a, OldRef: RecursiveRefType, NewRef: RecursiveRefType + 'a>(
             old_obj: &'a Self::Obj<OldRef>,
@@ -36,8 +36,9 @@ mod graph2 {
     /// another type in the same family.  (e.g. `Builder::push`
     /// accepts an argument of type `F::Obj<Builder>` and must
     /// internally convert it to an object of type `F::Obj<Storage>`)
-    pub trait RecursiveObj<R: RecursiveRefType = NilRefType> {
+    pub trait RecursiveObj {
         type Family: RecursiveFamily;
+        type RefType: RecursiveRefType;
         type DefaultContainer;
     }
 
@@ -109,9 +110,11 @@ mod graph2 {
     /// - `trait_alias`: https://github.com/rust-lang/rust/issues/41517
     /// - `implied_bounds`: https://github.com/rust-lang/rust/issues/44491
     /// - `provide_any`: https://github.com/rust-lang/rust/issues/96024
-    pub trait ContainerOf<T> {
-        fn to_container(val: T) -> Self;
-        fn from_container<'a>(&'a self) -> Result<&'a T, graph::Error>;
+    pub trait ContainerOf<R: RecursiveObj> {
+        fn to_container(val: <R::Family as RecursiveFamily>::Obj<Storage>) -> Self;
+        fn from_container<'a>(
+            &'a self,
+        ) -> Result<&'a <R::Family as RecursiveFamily>::Obj<Storage>, graph::Error>;
     }
 
     /// Inverse of `ContainerOf`, marks a node type as being stored
@@ -122,7 +125,14 @@ mod graph2 {
         fn from_container<'a>(container: &'a Container) -> Result<&'a Self, graph::Error>;
     }
 
-    impl<T, Container: ContainerOf<T>> ContainedBy<Container> for T {
+    impl<
+            F: RecursiveFamily,
+            T: RecursiveObj<Family = F, RefType = Storage>,
+            Container: ContainerOf<T>,
+        > ContainedBy<Container> for T
+    where
+        F: RecursiveFamily<Obj<Storage> = T>,
+    {
         fn to_container(self) -> Container {
             Container::to_container(self)
         }
@@ -131,19 +141,16 @@ mod graph2 {
         }
     }
 
-    impl<
-            Family: RecursiveFamily,
-            RootNodeType: RecursiveObj<Family = Family>,
-            Container: ContainerOf<Family::Obj<Storage>>,
-        > Owner<RootNodeType, Container>
+    impl<F: RecursiveFamily, RootNodeType: RecursiveObj<Family = F>, Container>
+        Owner<RootNodeType, Container>
     where
-        Family: RecursiveFamily<Obj<NilRefType> = RootNodeType>,
+        Container: ContainerOf<RootNodeType>,
     {
-        pub fn borrow(&self) -> Result<Family::Obj<Live<'_, Container>>, graph::Error> {
+        pub fn borrow(&self) -> Result<F::Obj<Live<'_, Container>>, graph::Error> {
             let container: &Container = self.nodes.last().unwrap();
-            let node: &Family::Obj<Storage> = container.from_container()?;
+            let node: &F::Obj<Storage> = container.from_container()?;
             let converter = StorageToLive { view: &self.nodes };
-            let live_ref = Family::convert(node, &converter);
+            let live_ref = F::convert(node, &converter);
             Ok(live_ref)
         }
     }
@@ -179,7 +186,7 @@ mod graph2 {
 
     impl<Container> Builder<Container> {
         /// Insert a new node to the builder
-        pub fn push<F: RecursiveFamily, T: RecursiveObj<Builder<Container>, Family = F>>(
+        pub fn push<F: RecursiveFamily, T: RecursiveObj<RefType = Builder<Container>, Family = F>>(
             &mut self,
             builder_obj: T,
         ) -> BuilderRef<F::Obj<NilRefType>>
@@ -229,16 +236,13 @@ mod graph2 {
         type Ref<T: ?Sized> = LiveRef<'a, T, Container>;
     }
 
-    impl<
-            'a,
-            Family: RecursiveFamily,
-            T: RecursiveObj<Family = Family>,
-            Container: ContainerOf<Family::Obj<Storage>>,
-        > LiveRef<'a, T, Container>
-    where
-        Family: RecursiveFamily<Obj<NilRefType> = T>,
+    impl<'a, Family: RecursiveFamily, T: RecursiveObj<Family = Family>, Container: 'a>
+        LiveRef<'a, T, Container>
     {
-        pub fn borrow(&self) -> Result<Family::Obj<Live<'_, Container>>, graph::Error> {
+        pub fn borrow(&self) -> Result<Family::Obj<Live<'a, Container>>, graph::Error>
+        where
+            Container: ContainerOf<T>,
+        {
             let self_index = self
                 .view
                 .len()
@@ -314,7 +318,7 @@ pub mod peano {
 
     pub enum Number<R: RecursiveRefType = NilRefType> {
         Zero,
-        Successor(R::Ref<Number>),
+        Successor(R::Ref<Number<NilRefType>>),
     }
 
     pub struct NumberFamily;
@@ -325,10 +329,7 @@ pub mod peano {
         fn convert<'a, OldRef: RecursiveRefType, NewRef: RecursiveRefType + 'a>(
             old_obj: &'a Self::Obj<OldRef>,
             converter: &impl RefTypeConverter<OldRef, NewRef>,
-        ) -> Self::Obj<NewRef>
-        where
-            Self::Obj<NewRef>: 'a,
-        {
+        ) -> Self::Obj<NewRef> {
             match old_obj {
                 Number::Zero => Number::Zero,
                 Number::Successor(old_ref) => {
@@ -338,16 +339,17 @@ pub mod peano {
         }
     }
 
-    impl<R: RecursiveRefType> RecursiveObj<R> for <NumberFamily as RecursiveFamily>::Obj<R> {
+    impl<RefType: RecursiveRefType> RecursiveObj for Number<RefType> {
         type Family = NumberFamily;
         type DefaultContainer = NumberContainer;
+        type RefType = RefType;
     }
 
     pub enum NumberContainer {
         Number(Number<Storage>),
     }
 
-    impl ContainerOf<Number<Storage>> for NumberContainer {
+    impl<RefType: RecursiveRefType> ContainerOf<Number<RefType>> for NumberContainer {
         fn to_container(val: Number<Storage>) -> Self {
             Self::Number(val)
         }
@@ -370,7 +372,7 @@ impl graph2::Owner<peano::Number> {
     }
 }
 
-impl<'a, Container: graph2::ContainerOf<peano::Number<graph2::Storage>> + 'a>
+impl<'a, Container: graph2::ContainerOf<peano::Number> + 'a>
     peano::Number<graph2::Live<'a, Container>>
 {
     fn value(&self) -> usize {
@@ -386,7 +388,7 @@ impl<'a, Container: graph2::ContainerOf<peano::Number<graph2::Storage>> + 'a>
 
 #[test]
 fn construct_annotated() {
-    let _three: graph2::Owner<peano::Number<graph2::NilRefType>, peano::NumberContainer> = {
+    let _three: graph2::Owner<peano::Number<graph2::Storage>, peano::NumberContainer> = {
         let mut builder = graph2::Builder::<peano::NumberContainer>::new();
         let mut a: graph2::BuilderRef<peano::Number<_>> = builder.push::<peano::NumberFamily, _>(
             peano::Number::<graph2::Builder<peano::NumberContainer>>::Zero,
@@ -419,7 +421,19 @@ fn call_static_method() {
 }
 
 #[test]
-fn unpack_match_method() -> Result<(), graph::Error> {
+fn match_root() -> Result<(), graph::Error> {
+    let zero = graph2::Owner::<peano::Number>::new(0);
+    let one = graph2::Owner::<peano::Number>::new(1);
+
+    use peano::Number;
+    assert!(matches!(zero.borrow()?, Number::Zero));
+    assert!(matches!(one.borrow()?, Number::Successor(_)));
+
+    Ok(())
+}
+
+#[test]
+fn match_live_ref() -> Result<(), graph::Error> {
     let three = graph2::Owner::<peano::Number>::new(3);
 
     use peano::Number;

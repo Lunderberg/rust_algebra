@@ -83,15 +83,15 @@ mod graph2 {
         _node: PhantomData<*const T>,
     }
 
-    ///////////////////////////////////
-    ////////////// Owner //////////////
-    ///////////////////////////////////
+    ///////////////////////////////////////
+    ////////////// TypedTree //////////////
+    ///////////////////////////////////////
 
     /// A container for an entire tree structure.  The container must
     /// be able to represent any individual node type that may occur
     /// within the tree.  These should be expected by implementing
     /// `ContainerOf<Node>` for each type that may be contained.
-    pub struct Owner<
+    pub struct TypedTree<
         RootNodeType: RecursiveObj,
         Container = <RootNodeType as RecursiveObj>::DefaultContainer,
     > {
@@ -142,14 +142,14 @@ mod graph2 {
     }
 
     impl<F: RecursiveFamily, RootNodeType: RecursiveObj<Family = F>, Container>
-        Owner<RootNodeType, Container>
+        TypedTree<RootNodeType, Container>
     where
         Container: ContainerOf<RootNodeType>,
     {
-        pub fn borrow(&self) -> Result<F::Obj<Live<'_, Container>>, graph::Error> {
+        pub fn borrow(&self) -> Result<F::Obj<Visiting<'_, Container>>, graph::Error> {
             let container: &Container = self.nodes.last().unwrap();
             let node: &F::Obj<Storage> = container.from_container()?;
-            let converter = StorageToLive { view: &self.nodes };
+            let converter = StorageToVisiting { view: &self.nodes };
             let live_ref = F::convert(node, &converter);
             Ok(live_ref)
         }
@@ -159,7 +159,7 @@ mod graph2 {
     ////////////// Builder //////////////
     /////////////////////////////////////
 
-    /// A constructor used to generate a `Owner<Container>`.
+    /// A constructor used to generate a `TypedTree<Container>`.
     pub struct Builder<Container> {
         nodes: Vec<Container>,
     }
@@ -207,7 +207,7 @@ mod graph2 {
     }
 
     impl<RootNodeType: RecursiveObj, Container> From<Builder<Container>>
-        for Owner<RootNodeType, Container>
+        for TypedTree<RootNodeType, Container>
     {
         fn from(builder: Builder<Container>) -> Self {
             Self {
@@ -217,29 +217,29 @@ mod graph2 {
         }
     }
 
-    //////////////////////////////////////
-    //////////////   Live   //////////////
-    //////////////////////////////////////
+    //////////////////////////////////////////
+    //////////////   Visiting   //////////////
+    //////////////////////////////////////////
 
-    pub struct Live<'a, Container> {
+    pub struct Visiting<'a, Container> {
         _a: PhantomData<&'a usize>,
         _c: PhantomData<*const Container>,
     }
 
-    pub struct LiveRef<'a, T: ?Sized, Container> {
+    pub struct VisitingRef<'a, T: ?Sized, Container> {
         rel_pos: usize,
         view: &'a [Container],
         _phantom: PhantomData<*const T>,
     }
 
-    impl<'a, Container: 'a> RecursiveRefType for Live<'a, Container> {
-        type Ref<T: ?Sized> = LiveRef<'a, T, Container>;
+    impl<'a, Container: 'a> RecursiveRefType for Visiting<'a, Container> {
+        type Ref<T: ?Sized> = VisitingRef<'a, T, Container>;
     }
 
     impl<'a, Family: RecursiveFamily, T: RecursiveObj<Family = Family>, Container: 'a>
-        LiveRef<'a, T, Container>
+        VisitingRef<'a, T, Container>
     {
-        pub fn borrow(&self) -> Result<Family::Obj<Live<'a, Container>>, graph::Error>
+        pub fn borrow(&self) -> Result<Family::Obj<Visiting<'a, Container>>, graph::Error>
         where
             Container: ContainerOf<T>,
         {
@@ -259,7 +259,7 @@ mod graph2 {
 
             let container: &Container = &self.view[index];
             let node: &Family::Obj<Storage> = container.from_container()?;
-            let converter = StorageToLive {
+            let converter = StorageToVisiting {
                 view: &self.view[..=index],
             };
             let live_ref = Family::convert(node, &converter);
@@ -290,15 +290,17 @@ mod graph2 {
         }
     }
 
-    struct StorageToLive<'a, Container> {
+    /// Converts from Storage references as they are stored in the
+    /// contiguous array to a Visiting reference
+    struct StorageToVisiting<'a, Container> {
         view: &'a [Container],
     }
 
-    impl<'a, Container: 'a> RefTypeConverter<Storage, Live<'a, Container>>
-        for StorageToLive<'a, Container>
+    impl<'a, Container: 'a> RefTypeConverter<Storage, Visiting<'a, Container>>
+        for StorageToVisiting<'a, Container>
     {
-        fn convert_reference<T>(&self, old_ref: &StorageRef<T>) -> LiveRef<'a, T, Container> {
-            LiveRef {
+        fn convert_reference<T>(&self, old_ref: &StorageRef<T>) -> VisitingRef<'a, T, Container> {
+            VisitingRef {
                 rel_pos: old_ref.rel_pos,
                 view: self.view,
                 _phantom: PhantomData,
@@ -361,7 +363,7 @@ pub mod peano {
     }
 }
 
-impl graph2::Owner<peano::Number> {
+impl graph2::TypedTree<peano::Number> {
     fn new(val: u8) -> Self {
         let mut builder = graph2::Builder::new();
         let mut a = builder.push(peano::Number::Zero);
@@ -373,7 +375,7 @@ impl graph2::Owner<peano::Number> {
 }
 
 impl<'a, Container: graph2::ContainerOf<peano::Number> + 'a>
-    peano::Number<graph2::Live<'a, Container>>
+    peano::Number<graph2::Visiting<'a, Container>>
 {
     fn value(&self) -> usize {
         match self {
@@ -388,7 +390,7 @@ impl<'a, Container: graph2::ContainerOf<peano::Number> + 'a>
 
 #[test]
 fn construct_annotated() {
-    let _three: graph2::Owner<peano::Number<graph2::Storage>, peano::NumberContainer> = {
+    let _three: graph2::TypedTree<peano::Number<graph2::Storage>, peano::NumberContainer> = {
         let mut builder = graph2::Builder::<peano::NumberContainer>::new();
         let mut a: graph2::BuilderRef<peano::Number<_>> = builder.push::<peano::NumberFamily, _>(
             peano::Number::<graph2::Builder<peano::NumberContainer>>::Zero,
@@ -404,7 +406,7 @@ fn construct_annotated() {
 
 #[test]
 fn construct_unannotated() {
-    let _three: graph2::Owner<peano::Number> = {
+    let _three: graph2::TypedTree<peano::Number> = {
         let mut builder = graph2::Builder::new();
         let mut a = builder.push(peano::Number::Zero);
 
@@ -417,13 +419,13 @@ fn construct_unannotated() {
 
 #[test]
 fn call_static_method() {
-    let _three = graph2::Owner::<peano::Number>::new(3);
+    let _three = graph2::TypedTree::<peano::Number>::new(3);
 }
 
 #[test]
 fn match_root() -> Result<(), graph::Error> {
-    let zero = graph2::Owner::<peano::Number>::new(0);
-    let one = graph2::Owner::<peano::Number>::new(1);
+    let zero = graph2::TypedTree::<peano::Number>::new(0);
+    let one = graph2::TypedTree::<peano::Number>::new(1);
 
     use peano::Number;
     assert!(matches!(zero.borrow()?, Number::Zero));
@@ -434,7 +436,7 @@ fn match_root() -> Result<(), graph::Error> {
 
 #[test]
 fn match_live_ref() -> Result<(), graph::Error> {
-    let three = graph2::Owner::<peano::Number>::new(3);
+    let three = graph2::TypedTree::<peano::Number>::new(3);
 
     use peano::Number;
     let value = match three.borrow()? {
@@ -461,7 +463,7 @@ fn match_live_ref() -> Result<(), graph::Error> {
 
 #[test]
 fn call_instance_method() -> Result<(), graph::Error> {
-    let three = graph2::Owner::<peano::Number>::new(3);
+    let three = graph2::TypedTree::<peano::Number>::new(3);
     let value = three.borrow()?.value();
     assert_eq!(value, 3);
     Ok(())

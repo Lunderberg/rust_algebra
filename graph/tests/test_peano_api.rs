@@ -13,6 +13,7 @@ mod graph2 {
     /// Usage type (e.g. Storage, Builder, Visitor)
     pub trait RecursiveRefType<'a>: 'a {
         type Ref<T: ?Sized>;
+        type Value<T: 'a>;
     }
 
     /// Meta-object, at compile-time can generate an enum for a
@@ -23,9 +24,14 @@ mod graph2 {
 
         type DefaultContainer: 'a;
 
-        fn convert<OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
-            old_obj: &Self::Obj<OldRef>,
-            converter: &impl RefTypeConverter<'a, OldRef, NewRef>,
+        fn view_ref<OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
+            old_obj: &'a Self::Obj<OldRef>,
+            viewer: &impl RefTypeViewer<'a, OldRef, NewRef>,
+        ) -> Self::Obj<NewRef>;
+
+        fn move_ref<OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
+            old_obj: Self::Obj<OldRef>,
+            viewer: &impl RefTypeMover<'a, OldRef, NewRef>,
         ) -> Self::Obj<NewRef>;
     }
 
@@ -42,10 +48,17 @@ mod graph2 {
     }
 
     /// Convert between references of different usage types
-    /// (e.g. build a Storage enum from a Builder enum, or build a
-    /// Visitor enum from a Storage enum)
-    pub trait RefTypeConverter<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>> {
-        fn convert_reference<T>(&self, old_ref: &OldRef::Ref<T>) -> NewRef::Ref<T>;
+    /// (e.g. build a Visitor enum from a Storage enum)
+    pub trait RefTypeViewer<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>> {
+        fn view_reference<T>(&self, old_ref: &OldRef::Ref<T>) -> NewRef::Ref<T>;
+        fn view_value<T>(&self, value: &'a OldRef::Value<T>) -> NewRef::Value<T>;
+    }
+
+    /// Convert between references of different usage types
+    /// (e.g. build a Storage enum from a Builder enum)
+    pub trait RefTypeMover<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>> {
+        fn move_reference<T>(&self, old_ref: OldRef::Ref<T>) -> NewRef::Ref<T>;
+        fn move_value<T>(&self, value: OldRef::Value<T>) -> NewRef::Value<T>;
     }
 
     /// Utility reference type, used to avoid infinite recursion at
@@ -59,6 +72,7 @@ mod graph2 {
     pub struct NilRefType;
     impl<'a> RecursiveRefType<'a> for NilRefType {
         type Ref<T: ?Sized> = ();
+        type Value<T: 'a> = ();
     }
 
     /////////////////////////////////////
@@ -71,6 +85,7 @@ mod graph2 {
 
     impl<'a> RecursiveRefType<'a> for Storage {
         type Ref<T: ?Sized> = StorageRef<T>;
+        type Value<T: 'a> = T;
     }
 
     /// Represents a reference in the linearized structure.
@@ -151,7 +166,7 @@ mod graph2 {
             let container: &Container = self.nodes.last().unwrap();
             let node: &F::Obj<Storage> = container.from_container()?;
             let converter = StorageToVisiting { view: &self.nodes };
-            let live_ref = F::convert(node, &converter);
+            let live_ref = F::view_ref(node, &converter);
             Ok(live_ref)
         }
     }
@@ -187,6 +202,7 @@ mod graph2 {
 
     impl<'a, Container> RecursiveRefType<'a> for Builder<'a, Container> {
         type Ref<T: ?Sized> = BuilderRef<T>;
+        type Value<T: 'a> = T;
     }
 
     impl<'a, Container> Builder<'a, Container> {
@@ -204,7 +220,7 @@ mod graph2 {
         {
             let abs_pos = self.nodes.len();
             let converter = BuilderToStorage { size: abs_pos };
-            let storage_obj: F::Obj<Storage> = F::convert(&builder_obj, &converter);
+            let storage_obj: F::Obj<Storage> = F::move_ref(builder_obj, &converter);
             let container: Container = storage_obj.to_container();
             self.nodes.push(container);
             BuilderRef {
@@ -243,6 +259,7 @@ mod graph2 {
 
     impl<'a, Container> RecursiveRefType<'a> for Visiting<'a, Container> {
         type Ref<T: ?Sized> = VisitingRef<'a, T, Container>;
+        type Value<T: 'a> = &'a T;
     }
 
     impl<
@@ -272,7 +289,7 @@ mod graph2 {
             let converter = StorageToVisiting {
                 view: &self.view[..=index],
             };
-            let live_ref = Family::convert(node, &converter);
+            let live_ref = Family::view_ref(node, &converter);
             Ok(live_ref)
         }
     }
@@ -287,8 +304,8 @@ mod graph2 {
         size: usize,
     }
 
-    impl<'a, Container> RefTypeConverter<'a, Builder<'a, Container>, Storage> for BuilderToStorage {
-        fn convert_reference<T>(&self, old_ref: &BuilderRef<T>) -> StorageRef<T> {
+    impl<'a, Container> RefTypeMover<'a, Builder<'a, Container>, Storage> for BuilderToStorage {
+        fn move_reference<T>(&self, old_ref: BuilderRef<T>) -> StorageRef<T> {
             let rel_pos = self
                 .size
                 .checked_sub(old_ref.abs_pos)
@@ -298,6 +315,10 @@ mod graph2 {
                 _node: PhantomData,
             }
         }
+
+        fn move_value<T>(&self, value: T) -> T {
+            value
+        }
     }
 
     /// Converts from Storage references as they are stored in the
@@ -306,15 +327,19 @@ mod graph2 {
         view: &'a [Container],
     }
 
-    impl<'a, Container> RefTypeConverter<'a, Storage, Visiting<'a, Container>>
+    impl<'a, Container> RefTypeViewer<'a, Storage, Visiting<'a, Container>>
         for StorageToVisiting<'a, Container>
     {
-        fn convert_reference<T>(&self, old_ref: &StorageRef<T>) -> VisitingRef<'a, T, Container> {
+        fn view_reference<T>(&self, old_ref: &StorageRef<T>) -> VisitingRef<'a, T, Container> {
             VisitingRef {
                 rel_pos: old_ref.rel_pos,
                 view: self.view,
                 _phantom: PhantomData,
             }
+        }
+
+        fn view_value<T>(&self, value: &'a T) -> &'a T {
+            value
         }
     }
 }
@@ -340,15 +365,23 @@ pub mod peano {
 
         type DefaultContainer = NumberContainer<'a>;
 
-        fn convert<OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
+        fn view_ref<OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
             old_obj: &Self::Obj<OldRef>,
-            converter: &impl RefTypeConverter<'a, OldRef, NewRef>,
+            converter: &impl RefTypeViewer<'a, OldRef, NewRef>,
         ) -> Self::Obj<NewRef> {
             match old_obj {
                 Number::Zero => Number::Zero,
-                Number::Successor(old_ref) => {
-                    Number::Successor(converter.convert_reference(old_ref))
-                }
+                Number::Successor(old_ref) => Number::Successor(converter.view_reference(old_ref)),
+            }
+        }
+
+        fn move_ref<OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
+            old_obj: Self::Obj<OldRef>,
+            converter: &impl RefTypeMover<'a, OldRef, NewRef>,
+        ) -> Self::Obj<NewRef> {
+            match old_obj {
+                Number::Zero => Number::Zero,
+                Number::Successor(old_ref) => Number::Successor(converter.move_reference(old_ref)),
             }
         }
     }
@@ -479,5 +512,114 @@ fn call_instance_method() -> Result<(), graph::Error> {
     let three = graph2::TypedTree::<peano::Number>::new(3);
     let value = three.borrow()?.value();
     assert_eq!(value, 3);
+    Ok(())
+}
+
+pub mod direct_expr {
+    // Initial definition
+    // enum IntExpr {
+    //     Int(i64),
+    //     Add(IntExpr, IntExpr),
+    // }
+
+    use super::graph2::*;
+
+    pub enum IntExpr<'a, R: RecursiveRefType<'a> = NilRefType> {
+        Int(R::Value<i64>),
+        Add(
+            R::Ref<IntExpr<'a, NilRefType>>,
+            R::Ref<IntExpr<'a, NilRefType>>,
+        ),
+    }
+
+    pub struct IntExprFamily;
+
+    impl<'a> RecursiveFamily<'a> for IntExprFamily {
+        type Obj<R: RecursiveRefType<'a>> = IntExpr<'a, R>;
+
+        type DefaultContainer = IntExprContainer<'a>;
+
+        fn view_ref<OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
+            old_obj: &'a Self::Obj<OldRef>,
+            converter: &impl RefTypeViewer<'a, OldRef, NewRef>,
+        ) -> Self::Obj<NewRef> {
+            match old_obj {
+                IntExpr::Int(val) => IntExpr::Int(converter.view_value(val)),
+                IntExpr::Add(a, b) => {
+                    IntExpr::Add(converter.view_reference(a), converter.view_reference(b))
+                }
+            }
+        }
+
+        fn move_ref<OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
+            old_obj: Self::Obj<OldRef>,
+            converter: &impl RefTypeMover<'a, OldRef, NewRef>,
+        ) -> Self::Obj<NewRef> {
+            match old_obj {
+                IntExpr::Int(val) => IntExpr::Int(converter.move_value(val)),
+                IntExpr::Add(a, b) => {
+                    IntExpr::Add(converter.move_reference(a), converter.move_reference(b))
+                }
+            }
+        }
+    }
+
+    impl<'a, RefType: RecursiveRefType<'a>> RecursiveObj<'a> for IntExpr<'a, RefType> {
+        type Family = IntExprFamily;
+        type RefType = RefType;
+    }
+
+    pub enum IntExprContainer<'a> {
+        IntExpr(IntExpr<'a, Storage>),
+    }
+
+    impl<'a, RefType: RecursiveRefType<'a>> ContainerOf<'a, IntExpr<'a, RefType>>
+        for IntExprContainer<'a>
+    {
+        fn to_container(val: IntExpr<'a, Storage>) -> Self {
+            Self::IntExpr(val)
+        }
+        fn from_container(&self) -> Result<&IntExpr<'a, Storage>, graph::Error> {
+            match self {
+                Self::IntExpr(val) => Ok(val),
+            }
+        }
+    }
+}
+
+impl<'a> graph2::TypedTree<'a, direct_expr::IntExpr<'a>> {
+    fn eval(&'a self) -> i64 {
+        self.borrow().unwrap().eval()
+    }
+}
+
+impl<'a, Container: graph2::ContainerOf<'a, direct_expr::IntExpr<'a>>>
+    direct_expr::IntExpr<'a, graph2::Visiting<'a, Container>>
+{
+    fn eval(&self) -> i64 {
+        match self {
+            Self::Int(val) => **val,
+            Self::Add(a, b) => a.borrow().unwrap().eval() + b.borrow().unwrap().eval(),
+        }
+    }
+}
+
+#[test]
+fn eval_int_expr() -> Result<(), graph::Error> {
+    use direct_expr::IntExpr;
+    let expr: graph2::TypedTree<IntExpr> = {
+        let mut builder = graph2::Builder::new();
+        let a = builder.push(IntExpr::Int(5));
+        let b = builder.push(IntExpr::Int(10));
+        let c = builder.push(IntExpr::Add(a, b));
+        let d = builder.push(IntExpr::Int(100));
+        builder.push(IntExpr::Add(c, d));
+        builder.into()
+    };
+
+    let value: i64 = expr.eval();
+
+    assert_eq!(value, 115);
+
     Ok(())
 }

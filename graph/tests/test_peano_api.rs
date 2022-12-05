@@ -517,8 +517,9 @@ fn call_instance_method() -> Result<(), graph::Error> {
 
 pub mod direct_expr {
     // Initial definition
-    // enum IntExpr {
+    // enum IntExpr<'a> {
     //     Int(i64),
+    //     IntRef(&'a i64),
     //     Add(IntExpr, IntExpr),
     // }
 
@@ -526,6 +527,7 @@ pub mod direct_expr {
 
     pub enum IntExpr<'a, R: RecursiveRefType<'a> = NilRefType> {
         Int(R::Value<i64>),
+        IntRef(R::Value<&'a i64>),
         Add(
             R::Ref<IntExpr<'a, NilRefType>>,
             R::Ref<IntExpr<'a, NilRefType>>,
@@ -545,6 +547,7 @@ pub mod direct_expr {
         ) -> Self::Obj<NewRef> {
             match old_obj {
                 IntExpr::Int(val) => IntExpr::Int(converter.view_value(val)),
+                IntExpr::IntRef(val) => IntExpr::IntRef(converter.view_value(val)),
                 IntExpr::Add(a, b) => {
                     IntExpr::Add(converter.view_reference(a), converter.view_reference(b))
                 }
@@ -557,6 +560,7 @@ pub mod direct_expr {
         ) -> Self::Obj<NewRef> {
             match old_obj {
                 IntExpr::Int(val) => IntExpr::Int(converter.move_value(val)),
+                IntExpr::IntRef(val) => IntExpr::IntRef(converter.move_value(val)),
                 IntExpr::Add(a, b) => {
                     IntExpr::Add(converter.move_reference(a), converter.move_reference(b))
                 }
@@ -599,6 +603,7 @@ impl<'a, Container: graph2::ContainerOf<'a, direct_expr::IntExpr<'a>>>
     fn eval(&self) -> i64 {
         match self {
             Self::Int(val) => **val,
+            Self::IntRef(val) => ***val,
             Self::Add(a, b) => a.borrow().unwrap().eval() + b.borrow().unwrap().eval(),
         }
     }
@@ -613,6 +618,29 @@ fn eval_int_expr() -> Result<(), graph::Error> {
         let b = builder.push(IntExpr::Int(10));
         let c = builder.push(IntExpr::Add(a, b));
         let d = builder.push(IntExpr::Int(100));
+        builder.push(IntExpr::Add(c, d));
+        builder.into()
+    };
+
+    let value: i64 = expr.eval();
+
+    assert_eq!(value, 115);
+
+    Ok(())
+}
+
+#[test]
+fn eval_int_expr_with_reference() -> Result<(), graph::Error> {
+    use direct_expr::IntExpr;
+
+    let data = vec![5, 10, 100];
+
+    let expr: graph2::TypedTree<IntExpr> = {
+        let mut builder = graph2::Builder::new();
+        let a = builder.push(IntExpr::IntRef(&data[0]));
+        let b = builder.push(IntExpr::IntRef(&data[1]));
+        let c = builder.push(IntExpr::Add(a, b));
+        let d = builder.push(IntExpr::IntRef(&data[2]));
         builder.push(IntExpr::Add(c, d));
         builder.into()
     };

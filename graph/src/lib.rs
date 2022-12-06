@@ -11,14 +11,17 @@
 
 extern crate self as graph;
 
-mod graph_traits;
-pub use graph_traits::*;
-
-mod builder;
-pub use builder::*;
-
 mod error;
 pub use error::*;
 
 mod reference_types;
 pub use reference_types::*;
+
+mod typed_tree;
+pub use typed_tree::*;
+
+mod builder;
+pub use builder::*;
+
+mod converters;
+pub use converters::*;

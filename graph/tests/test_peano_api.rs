@@ -49,14 +49,18 @@ mod graph2 {
 
     /// Convert between references of different usage types
     /// (e.g. build a Visitor enum from a Storage enum)
-    pub trait RefTypeViewer<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>> {
+    pub trait RefTypeViewer<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>:
+        'a
+    {
         fn view_reference<T>(&self, old_ref: &OldRef::Ref<T>) -> NewRef::Ref<T>;
         fn view_value<T>(&self, value: &'a OldRef::Value<T>) -> NewRef::Value<T>;
     }
 
     /// Convert between references of different usage types
     /// (e.g. build a Storage enum from a Builder enum)
-    pub trait RefTypeMover<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>> {
+    pub trait RefTypeMover<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>:
+        'a
+    {
         fn move_reference<T>(&self, old_ref: OldRef::Ref<T>) -> NewRef::Ref<T>;
         fn move_value<T>(&self, value: OldRef::Value<T>) -> NewRef::Value<T>;
     }
@@ -135,7 +139,7 @@ mod graph2 {
     /// Inverse of `ContainerOf`, marks a node type as being stored
     /// inside a specific `Container`.  Automatically implemented in
     /// terms of `ContainerOf`.
-    pub trait ContainedBy<'a, Container> {
+    pub trait ContainedBy<'a, Container>: 'a {
         fn to_container(self) -> Container;
         fn from_container(container: &'a Container) -> Result<&'a Self, graph::Error>;
     }

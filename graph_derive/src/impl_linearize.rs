@@ -192,7 +192,7 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
             if self.info.is_self_reference(&ty) {
                 let (_, generic_args) = &self.info.user_defined_generics;
                 syn::parse2(quote! {
-                    Ref::RefType<#ty<
+                    Ref::Ref<#ty<
                             #lifetime
                             #( , #generic_args )*
                         >>
@@ -200,12 +200,12 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
                 .expect("Error parsing re-written recursive type for generic enum")
             } else if self.info.is_recursive_type(&ty) {
                 syn::parse2(quote! {
-                    Ref::RefType<#ty<#lifetime>>
+                    Ref::Ref<#ty<#lifetime, ::graph::NilRefType>>
                 })
                 .expect("Error parsing re-written recursive type for generic enum")
             } else {
                 syn::parse2(quote! {
-                    Ref::ValueType<#ty>
+                    Ref::Value<#ty>
                 })
                 .expect("Error parsing re-written recursive type for generic enum")
             }
@@ -219,8 +219,8 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
 
     item_enum.generics = syn::parse2(quote! {
         <#lifetime
+         , Ref: ::graph::RecursiveRefType<#lifetime> = ::graph::NilRefType
          #( , #generic_params )*
-         , Ref: ::graph::NodeUsage<#lifetime> = ::graph::Storage<#lifetime>
          >
     })
     .expect("Error parsing generics for enum definition");
@@ -230,658 +230,197 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
     std::iter::once(item_enum.into())
 }
 
-fn generate_generic_node_trait_impl<'a>(
-    info: &'a EnumInfo,
-) -> impl Iterator<Item = syn::Item> + 'a {
+fn generate_recursive_obj_impl<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn::Item> + 'a {
+    let lifetime = &info.view_lifetime;
     let ident = &info.item_enum.ident;
 
-    let live_type_arms: Vec<syn::Arm> = info
+    let stream = quote! {
+        impl<#lifetime, RefType: ::graph::RecursiveRefType<#lifetime>>
+            ::graph::RecursiveObj<#lifetime> for
+            #ident<#lifetime, RefType> {
+                type Family = super::family::#ident;
+                type RefType = RefType;
+            }
+    };
+
+    std::iter::once(syn::parse2(stream).expect("Error parsing generated RecursiveObj impl"))
+}
+
+fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn::Item> + 'a {
+    let ident = &info.item_enum.ident;
+    let lifetime = &info.view_lifetime;
+
+    let struct_def = syn::parse2(quote! {
+        pub struct #ident;
+    })
+    .expect("Error parsing generated family struct");
+
+    let (view_arms, move_arms): (Vec<syn::Arm>, Vec<syn::Arm>) = info
         .item_enum
         .variants
         .iter()
-        .map(|var: &syn::Variant| -> syn::Arm {
-            let ident = &var.ident;
-            match &var.fields {
+        .map(|variant: &syn::Variant| -> (syn::Arm, syn::Arm) {
+            let arm_ident = &variant.ident;
+            match &variant.fields {
                 syn::Fields::Named(_) => todo!("Named enum fields"),
+
                 syn::Fields::Unnamed(fields) => {
-                    let (field_names, live_field_exprs): (Vec<_>, Vec<_>) = fields
-                        .unnamed
-                        .iter()
-                        .enumerate()
-                        .map(|(i, field)| {
-                            let ident = format_ident!("field_{i}");
-                            let stream = // if info.is_self_reference(&field.ty) {
-                            //     let generic_args = &info.user_defined_generic_args;
-                            //     quote! {
-                            //         converter.convert_reference( #ident< #( #generic_args ),* > )
-                            //     }
-                            // } else
-                                if info.is_recursive_type(&field.ty) {
-                                quote! {
-                                    converter.convert_reference( #ident )
-                                }
-                            } else {
-                                quote! { converter.convert_value( #ident ) }
-                            };
-                            let expr: syn::Expr =
-                                syn::parse2(stream).expect("Error parsing generated live field");
-                            (ident, expr)
-                        })
-                        .unzip();
-                    syn::parse2(quote! {
-                        Self::#ident(#(#field_names),*) =>
-                            Self::WithRef::<NewRef>::#ident(
-                                #(#live_field_exprs),*
-                            ),
+                    let (lhs_names, rhs_view, rhs_move): (Vec<_>, Vec<syn::Expr>, Vec<syn::Expr>) =
+                        fields
+                            .unnamed
+                            .iter()
+                            .enumerate()
+                            .map(|(i, field)| {
+                                let field_ident = format_ident!("field_{i}");
+                                let (view_stream, move_stream) =
+                                    if info.is_recursive_type(&field.ty) {
+                                        (
+                                            quote! { converter.view_reference( #field_ident ) },
+                                            quote! { converter.move_reference( #field_ident ) },
+                                        )
+                                    } else {
+                                        (
+                                            quote! { converter.view_value( #field_ident ) },
+                                            quote! { converter.move_value( #field_ident ) },
+                                        )
+                                    };
+                                let view_expr = syn::parse2(view_stream)
+                                    .expect("Error parsing generated view converter field");
+                                let move_expr = syn::parse2(move_stream)
+                                    .expect("Error parsing generated move converter field");
+
+                                (field_ident, view_expr, move_expr)
+                            })
+                            .multiunzip();
+
+                    let view_arm = syn::parse2(quote! {
+                        super::generic_enum::#ident::#arm_ident(#(#lhs_names),*) =>
+                            super::generic_enum::#ident::#arm_ident(#(#rhs_view),*),
                     })
-                    .expect("Error parsing generated arm in match statement")
+                    .expect("Error parsing generated arm for view_ref()");
+
+                    let move_arm = syn::parse2(quote! {
+                        super::generic_enum::#ident::#arm_ident(#(#lhs_names),*) =>
+                            super::generic_enum::#ident::#arm_ident(#(#rhs_move),*),
+                    })
+                    .expect("Error parsing generated arm for move_ref()");
+
+                    (view_arm, move_arm)
                 }
-                syn::Fields::Unit => syn::parse2(quote! {
-                    Self::#ident => Self::WithRef::<NewRef>::#ident,
-                })
-                .expect("Error parsing arm in generated match statement"),
+
+                syn::Fields::Unit => {
+                    let arm: syn::Arm = syn::parse2(quote! {
+                    super::generic_enum::#ident::#arm_ident => super::generic_enum::#ident::#arm_ident,
+                    })
+                    .expect("Error parsing generated arm for view_ref()");
+                    (arm.clone(), arm)
+                }
             }
         })
-        .collect();
+        .unzip();
 
-    let lifetime = &info.view_lifetime;
-    let (generic_params, generic_args) = &info.user_defined_generics;
-    let stream = quote! {
-        impl<#lifetime #( , #generic_params )* , Ref: ::graph::NodeUsage<#lifetime> >
-            ::graph::GenericGraphNode<#lifetime, Ref>
-            for #ident<#lifetime #( , #generic_args )* , Ref>
-        {
-            type DefaultSelector = super::selector::#ident<#lifetime #( , #generic_args )* >;
+    let struct_impl = syn::parse2(quote! {
+        impl<#lifetime> ::graph::RecursiveFamily<#lifetime> for #ident {
+            type Obj<Ref: ::graph::RecursiveRefType<#lifetime>>
+                = super::generic_enum::#ident<#lifetime, Ref>;
 
-            type WithRef<NewRef: ::graph::NodeUsage<#lifetime>> =
-                #ident<#lifetime #( , #generic_args )* , NewRef>;
+            type DefaultContainer = super::container::#ident<#lifetime>;
 
-            fn convert_references<
-                    NewRef: ::graph::NodeUsage<#lifetime>,
-                    Converter: ::graph::NodeUsageConverter<#lifetime, Ref, NewRef>,
-                >(
-                &#lifetime self,
-                converter: Converter,
-            ) -> Self::WithRef<NewRef> {
-                match self {
-                    #(#live_type_arms)*
+
+            fn view_ref<OldRef: ::graph::RecursiveRefType<#lifetime>,
+                        NewRef: ::graph::RecursiveRefType<#lifetime> > (
+                old_obj: &'view Self::Obj<OldRef>,
+                converter: &impl ::graph::RefTypeViewer<
+                        #lifetime, OldRef, NewRef>,
+            ) -> Self::Obj<NewRef> {
+                match old_obj {
+                     #( #view_arms )*
+                }
+            }
+
+            fn move_ref<OldRef: ::graph::RecursiveRefType<#lifetime>,
+                        NewRef: ::graph::RecursiveRefType<#lifetime>> (
+                old_obj: Self::Obj<OldRef>,
+                converter: &impl ::graph::RefTypeMover<
+                        #lifetime, OldRef, NewRef>,
+            ) -> Self::Obj<NewRef> {
+                match old_obj {
+                    #( #move_arms )*
                 }
             }
         }
-    };
 
-    std::iter::once(syn::parse2(stream).expect("Error parsing generated storage trait"))
+    })
+    .expect("Error parsing generated family impl");
+
+    vec![struct_def, struct_impl].into_iter()
 }
 
-fn generate_generic_enum_try_from_selector_impl<'a>(
-    info: &'a EnumInfo,
-) -> impl Iterator<Item = syn::Item> + 'a {
-    let selector = &info.item_enum.ident;
-
-    info.referenced_enums
-        .iter()
-        .map(|item_enum| &item_enum.ident)
-        .map(move |node_type| {
-            let node_name = format!("{node_type}");
-
-            let (other_node_types, other_node_names): (Vec<_>, Vec<_>) = info
-                .referenced_enums
-                .iter()
-                .map(|item_enum| &item_enum.ident)
-                .filter(|other_type| other_type != &node_type)
-                .map(|other_type| (other_type.clone(), format!("{other_type}")))
-                .unzip();
-
-            let lifetime = &info.view_lifetime;
-            let (generic_params, generic_args) = &info.user_defined_generics;
-            let selector_type = quote! {
-                super::selector::#selector::<#lifetime, #( #generic_args ),* >
-            };
-            let stream = quote! {
-                impl<#lifetime, #( #generic_params ),* >
-                    TryFrom<&#lifetime #selector_type>
-                    for &#lifetime #node_type<#lifetime,::graph::Storage<#lifetime>, #( #generic_args ),*>
-                {
-                    type Error = ::graph::Error;
-
-                    fn try_from(val: &#lifetime #selector_type)
-                                -> Result<Self,Self::Error> {
-                        match val {
-                            #selector_type::#node_type(e) => Ok(e),
-                            #(
-                                #selector_type::#other_node_types(_) => {
-                                    Err(Self::Error::IncorrectType {
-                                        expected: #node_name,
-                                        actual: #other_node_names,
-                                    })
-                                }
-                            )*
-                        }
-                    }
-                }
-            };
-
-            syn::parse2(stream).expect("Error parsing generated TryFrom trait")
-        })
-}
-
-fn generate_selector_enum(info: &EnumInfo) -> impl Iterator<Item = syn::Item> {
-    let mut selector = info.item_enum.clone();
+fn generate_container_enum(info: &EnumInfo) -> impl Iterator<Item = syn::Item> {
     let lifetime = &info.view_lifetime;
-    let lifetime_def: syn::LifetimeDef = { syn::parse2(quote! { #lifetime }).unwrap() };
-    let (_, generic_args) = &info.user_defined_generics;
-    selector.generics.params = std::iter::once(lifetime_def.into())
-        .chain(selector.generics.params.into_iter())
-        .collect();
-    selector.variants = info
+    let ident = &info.item_enum.ident;
+    let referenced_idents: Vec<_> = info
         .referenced_enums
         .iter()
-        .map(|referred_enum: &syn::ItemEnum| -> syn::Variant {
-            let ident = &referred_enum.ident;
-            syn::parse2::<syn::Variant>(quote! {
-                #ident(super::generic_enum::#ident<
-                    #lifetime, ::graph::Storage<#lifetime>
-                    #( , #generic_args )*
-                    >)
-            })
-            .expect("Error parsing generated selector enum")
-        })
+        .map(|ref_enum| &ref_enum.ident)
         .collect();
 
-    selector.vis = syn::parse2(quote! {pub}).unwrap();
+    let stream = quote! {
+        pub enum #ident<#lifetime> {
+            #(
+                #referenced_idents (
+                    super::generic_enum::#referenced_idents<#lifetime, ::graph::Storage>
+                ),
+            )*
+        }
+    };
 
-    std::iter::once(selector.into())
+    std::iter::once(syn::parse2(stream).expect("Error parsing generated container enum"))
 }
 
-fn generate_container_of_trait_impl<'a>(
-    info: &'a EnumInfo,
-) -> impl Iterator<Item = syn::Item> + 'a {
+fn generate_container_impl(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + '_ {
+    let lifetime = &info.view_lifetime;
     let ident = &info.item_enum.ident;
-    let lifetime = &info.view_lifetime;
+    info.referenced_enums.iter().map(move |ref_enum| {
+        let ref_ident = &ref_enum.ident;
+        let ref_ident_str = format!("{ref_ident}");
 
-    info.referenced_enums
-        .iter()
-        .map(move |ref_enum| -> syn::Item {
-            let ref_ident = &ref_enum.ident;
-            let (generic_params, generic_args) = &info.user_defined_generics;
-
-            let (other_node_idents, other_node_str): (Vec<_>, Vec<_>) = info
-                .referenced_enums
-                .iter()
-                .map(|item_enum| &item_enum.ident)
-                .filter(|other_type| other_type != &ref_ident)
-                .map(|other_type| (other_type.clone(), format!("{other_type}")))
-                .unzip();
-
-            let ref_type = quote! {
-                super::generic_enum::#ref_ident<#lifetime #(, #generic_args)*>
-            };
-
-            let ref_str = format!("{ref_ident}");
-
-            let stream = quote! {
-                impl<#lifetime #(, #generic_params)*>
-                    ::graph::ContainerOf
-                        <#lifetime, #ref_type>
-                    for #ident
-                        <#lifetime #(, #generic_args)*>
-                {
-
-                    fn to_container(node: #ref_type) -> Self {
-                        Self::#ref_ident(node)
-                    }
-
-                    fn from_container(& #lifetime self) -> Result<& #lifetime #ref_type, ::graph::Error> {
-                        match self {
-                            Self::#ref_ident(expr) => Ok(expr),
-                            #(
-                                Self::#other_node_idents(_) => {
-                                    Err(::graph::Error::IncorrectType {
-                                        expected: #ref_str,
-                                        actual: #other_node_str,
-                                    })
-                                }
-                            )*
-                        }
-                    }
-                }
-            };
-
-            syn::parse2(stream).expect("Error parsing generated ContainerOf impl")
-        })
-}
-
-fn generate_selector_from_storage_impl<'a>(
-    info: &'a EnumInfo,
-) -> impl Iterator<Item = syn::Item> + 'a {
-    let selector = &info.item_enum.ident;
-    let lifetime = &info.view_lifetime;
-    let (generic_params, generic_args) = &info.user_defined_generics;
-
-    info.referenced_enums.iter().map(move |referenced_enum| {
-        let node = &referenced_enum.ident;
-
-        let storage = quote! {
-            super::generic_enum::#node::<
-                    #lifetime, ::graph::Storage<#lifetime>
-                    #( , #generic_args )*
-                >
-        };
+        let (other_node_idents, other_node_str): (Vec<_>, Vec<_>) = info
+            .referenced_enums.iter()
+            .map(|other_enum| &other_enum.ident)
+            .filter(|other_ident| other_ident != &ref_ident)
+            .map(|other_ident| (other_ident.clone(), format!("{other_ident}")))
+            .unzip();
 
         let stream = quote! {
-            impl<#lifetime #( , #generic_params )* >
-                From<#storage >
-                for #selector<#lifetime #( , #generic_args )* > {
-                fn from(val: #storage) -> Self {
-                    Self::#node(val)
+            impl<#lifetime, RefType: ::graph::RecursiveRefType<#lifetime>>
+                ::graph::ContainerOf<
+                        #lifetime,
+                    super::generic_enum::#ref_ident<#lifetime, RefType>>
+                for #ident<#lifetime> {
+                    fn to_container(val: super::generic_enum::#ref_ident<#lifetime, ::graph::Storage>) -> Self {
+                        Self::#ref_ident(val)
+                    }
+
+                    fn from_container(&self) -> Result<
+                            & super::generic_enum::#ref_ident<
+                                    #lifetime, ::graph::Storage
+                                >, ::graph::Error> {
+                        match self {
+                            Self::#ref_ident(val) => Ok(val),
+                            #(
+                                Self::#other_node_idents(_) => Err(::graph::Error::IncorrectType {
+                                    expected: #ref_ident_str,
+                                    actual: #other_node_str,
+                                }),
+                            )*
+                        }
+                    }
                 }
-            }
         };
 
-        syn::parse2(stream).expect("Error parsing generated From<storage> type")
+        syn::parse2(stream).expect("Error parsing generated container impl")
     })
-}
-
-fn generate_typed_builder_trait<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn::Item> + 'a {
-    let ident = &info.item_enum.ident;
-    let builder = format_ident!("{ident}Builder");
-
-    struct MethodInfo {
-        variant_name: syn::Ident,
-        param_exprs: Vec<syn::Expr>,
-        signature: proc_macro2::TokenStream,
-    }
-
-    let lifetime = &info.view_lifetime;
-    let (generic_params, generic_args) = &info.user_defined_generics;
-
-    let method_info: Vec<MethodInfo> = info
-        .item_enum
-        .variants
-        .iter()
-        .map(|var: &syn::Variant| -> MethodInfo {
-            let variant_name = var.ident.clone();
-            let method_name = format_ident!("{ident}_{variant_name}");
-
-            let (arg_names, arg_types, param_exprs): (Vec<_>, Vec<_>, Vec<_>) = var
-                .fields
-                .iter()
-                .enumerate()
-                .map(|(i, field)| -> (syn::Ident, syn::Type, syn::Expr) {
-                    let arg_name = format_ident!("param{i}");
-                    if info.is_recursive_type(&field.ty) {
-                        let ty = &field.ty;
-                        let ty = syn::parse2(quote! {
-                            ::graph::GraphBuilderRef<
-                                    super::generic_enum::#ty
-                                    <#lifetime, ::graph::Storage<#lifetime>
-                                     #( , #generic_args )*
-                                     >>
-                        })
-                        .expect("Error generating GraphBuilderRef wrapper");
-                        let param_expr = syn::parse2(quote! {
-                            self.backref(#arg_name)
-                        })
-                        .expect("Error generating self.backref() wrapper");
-                        (arg_name, ty, param_expr)
-                    } else {
-                        let param_expr = syn::parse2(quote! {
-                            #arg_name
-                        })
-                        .unwrap();
-                        (arg_name, field.ty.clone(), param_expr)
-                    }
-                })
-                .multiunzip();
-
-            let signature = quote! {
-                fn #method_name(&mut self, #( #arg_names: #arg_types ),* )
-                                -> ::graph::GraphBuilderRef<
-                        super::generic_enum::#ident<
-                                #lifetime, ::graph::Storage<#lifetime>
-                                #( , #generic_args )* >
-                        >
-            };
-
-            MethodInfo {
-                variant_name,
-                param_exprs,
-                signature,
-            }
-        })
-        .collect();
-
-    let trait_methods: Vec<syn::TraitItemMethod> = method_info
-        .iter()
-        .map(|info| {
-            let signature = &info.signature;
-            let stream = quote! { # signature; };
-            syn::parse2(stream).expect("Error parsing generated trait method for builder")
-        })
-        .collect();
-
-    let trait_method_impls: Vec<syn::ImplItemMethod> = method_info
-        .iter()
-        .map(|info| {
-            let variant_name = &info.variant_name;
-            let param_exprs = &info.param_exprs;
-
-            let variant = if param_exprs.is_empty() {
-                quote! { super::generic_enum::#ident::#variant_name }
-            } else {
-                quote! { super::generic_enum::#ident::#variant_name
-                    ( #( #param_exprs ),* )
-                }
-            };
-
-            let signature = &info.signature;
-
-            let stream = quote! {
-                #signature {
-                    self.push_top( #variant )
-                }
-            };
-            syn::parse2(stream).expect("Error parsing generated trait impl for builder")
-        })
-        .collect();
-
-    let builder_trait = quote! {
-        pub trait #builder<#lifetime, #( #generic_params ),* > {
-            #![allow(non_snake_case)]
-
-            #( #trait_methods )*
-        }
-    };
-
-    let builder_trait_impl = quote! {
-        impl<#lifetime, BaseType: ::graph::GenericGraphNode<#lifetime>, #( #generic_params ),* >
-            #builder<#lifetime, #( #generic_args ),* >
-            for ::graph::Graph<#lifetime, BaseType>
-        where BaseType::DefaultSelector: From<
-                super::generic_enum::#ident<
-                        #lifetime, ::graph::Storage<#lifetime>
-                        #( , #generic_args )*
-                >>,
-        {
-            #![allow(non_snake_case)]
-
-            #( #trait_method_impls )*
-        }
-    };
-
-    vec![builder_trait, builder_trait_impl]
-        .into_iter()
-        .map(|stream| syn::parse2(stream).expect("Failed to parse generated builder trait/impl"))
-}
-
-fn generate_overload_dummy_struct<'a>(
-    module_name: Option<&'a str>,
-) -> impl Iterator<Item = (Option<&'a str>, syn::Item)> + 'a {
-    let stream = quote! {
-        pub struct OverloadDummy;
-    };
-    let obj = syn::parse2(stream).expect("Error parsing dummy overload struct");
-    std::iter::once((module_name, obj))
-}
-
-fn generate_overloaded_builder_trait<'a>(
-    info: &'a EnumInfo,
-) -> impl Iterator<Item = syn::Item> + 'a {
-    let base_type = &info.item_enum.ident;
-
-    #[derive(Debug)]
-    struct MethodInfo {
-        storage_type: syn::Ident,
-        method_name: syn::Ident,
-        field_types: Vec<syn::Type>,
-    }
-
-    struct OverloadSet {
-        method_name: syn::Ident,
-        dummy_trait_name: syn::Ident,
-        method_trait_name: syn::Ident,
-        param_names: Vec<syn::Ident>,
-        generic_type_params: Vec<syn::Ident>,
-        overloads: Vec<MethodInfo>,
-    }
-
-    let lifetime = &info.view_lifetime;
-    let (generic_params, generic_args) = &info.user_defined_generics;
-
-    let method_info: Vec<MethodInfo> = info
-        .referenced_enums
-        .iter()
-        .map(|ref_enum| {
-            let storage_type = ref_enum.ident.clone();
-            ref_enum
-                .variants
-                .iter()
-                .map(|var: &syn::Variant| {
-                    let field_types = var
-                        .fields
-                        .iter()
-                        .map(|field| {
-                            let ty = &field.ty;
-                            if info.is_recursive_type(ty) {
-                                syn::parse2(quote! {
-                                    ::graph::GraphBuilderRef<
-                                            super::generic_enum::#ty<
-                                                #lifetime, ::graph::Storage<#lifetime>
-                                                #( , #generic_args )*
-                                                >>
-                                })
-                                .expect("Error parsing generated GraphBuilderRef")
-                            } else {
-                                ty.clone()
-                            }
-                        })
-                        .collect();
-                    MethodInfo {
-                        storage_type: storage_type.clone(),
-                        method_name: var.ident.clone(),
-                        field_types,
-                    }
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-        })
-        .flatten()
-        .collect();
-
-    let overload_sets: Vec<OverloadSet> = method_info
-        .into_iter()
-        .map(|overloads| (overloads.method_name.clone(), overloads))
-        .into_group_map()
-        .into_values()
-        .filter(|overloads| {
-            overloads
-                .iter()
-                .map(|info| info.field_types.len())
-                .unique()
-                .count()
-                == 1
-        })
-        .filter(|overloads| {
-            overloads
-                .iter()
-                .map(|info| &info.field_types)
-                .duplicates()
-                .next()
-                .is_none()
-        })
-        .map(|overloads| {
-            let method_name = overloads[0].method_name.clone();
-            let dummy_trait_name = format_ident!("{base_type}_{method_name}_OverloadDummy");
-            let method_trait_name = format_ident!("{base_type}_{method_name}_OverloadMethod");
-            let param_names = overloads[0]
-                .field_types
-                .iter()
-                .enumerate()
-                .map(|(i, _ty)| format_ident!("param{i}"))
-                .collect();
-            let generic_type_params = overloads[0]
-                .field_types
-                .iter()
-                .enumerate()
-                .map(|(i, _ty)| format_ident!("T{i}"))
-                .collect();
-            OverloadSet {
-                method_name,
-                dummy_trait_name,
-                method_trait_name,
-                param_names,
-                generic_type_params,
-                overloads,
-            }
-        })
-        .collect();
-
-    let overload_dummy_traits = overload_sets
-        .iter()
-        .map(|overload_set| {
-            let method_name = &overload_set.method_name;
-            let dummy_trait_name = &overload_set.dummy_trait_name;
-            let param_names = &overload_set.param_names;
-            let generic_type_params = &overload_set.generic_type_params;
-            let stream = quote! {
-                pub trait #dummy_trait_name<#lifetime #( , #generic_type_params )*  #( , #generic_params )* > {
-                    #![allow(non_snake_case)]
-
-                    type OutNode;
-                    fn #method_name(
-                        graph: &mut ::graph::Graph<
-                                #lifetime, super::generic_enum::#base_type<
-                                    #lifetime, ::graph::Storage<#lifetime>
-                                    #( , #generic_args )*
-                                    >>,
-                        #( #param_names: #generic_type_params, )*
-                    ) -> ::graph::GraphBuilderRef<Self::OutNode>;
-                }
-            };
-            syn::parse2(stream).expect("Error parsing overloaded dummy trait")
-        })
-        .collect::<Vec<syn::Item>>()
-        .into_iter();
-
-    let overload_dummy_trait_impls = overload_sets
-        .iter()
-        .map(|overload_set| {
-            let method_name = &overload_set.method_name;
-            let dummy_trait_name = &overload_set.dummy_trait_name;
-            let param_names = &overload_set.param_names;
-            overload_set
-                .overloads
-                .iter()
-                .map(|overload| -> syn::Item {
-                    let field_types = &overload.field_types;
-                    let storage_type = &overload.storage_type;
-                    let delegate = format_ident!("{storage_type}_{method_name}");
-                    let (generic_params, _) = &info.user_defined_generics;
-                    let stream = quote! {
-                        impl<#lifetime, #( #generic_params ),* >
-                            #dummy_trait_name<#lifetime #( , #field_types )* #( , #generic_args )* >
-                        for OverloadDummy {
-                            type OutNode = super::generic_enum::#storage_type<
-                                #lifetime, ::graph::Storage<#lifetime>
-                                #( , #generic_args )*
-                             >;
-                            fn #method_name (
-                                graph: &mut ::graph::Graph<
-                                    #lifetime,
-                                    super::generic_enum::#base_type<
-                                        #lifetime, ::graph::Storage<#lifetime>
-                                        #( , #generic_args )*
-                                    >>,
-                                #( #param_names: #field_types, )*
-                            ) -> ::graph::GraphBuilderRef<Self::OutNode> {
-                                graph.#delegate( #(#param_names),* )
-                            }
-
-                        }
-                    };
-                    syn::parse2(stream).expect("Error parsing overloaded dummy trait impl")
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-        })
-        .flatten()
-        .collect::<Vec<syn::Item>>()
-        .into_iter();
-
-    let overload_method_trait = overload_sets
-        .iter()
-        .map(|overload_set| {
-            let method_name = &overload_set.method_name;
-            let dummy_trait_name = &overload_set.dummy_trait_name;
-            let method_trait_name = &overload_set.method_trait_name;
-            let param_names = &overload_set.param_names;
-            let generic_type_params = &overload_set.generic_type_params;
-
-            let stream = quote! {
-                pub trait #method_trait_name<#lifetime, #( #generic_params ),* > {
-                    #![allow(non_snake_case)]
-
-                    fn #method_name< #( #generic_type_params ),* >(
-                        &mut self,
-                        #( #param_names: #generic_type_params, )*
-                    ) -> ::graph::GraphBuilderRef<<
-                        OverloadDummy as #dummy_trait_name
-                             <#lifetime #( , #generic_type_params )* #( , #generic_args )* >
-                        >::OutNode>
-                    where
-                        OverloadDummy: #dummy_trait_name
-                    <#lifetime  #( , #generic_type_params )* #( , #generic_args )* >;
-                }
-            };
-            syn::parse2(stream).expect("Error parsing overloaded method trait")
-        })
-        .collect::<Vec<syn::Item>>()
-        .into_iter();
-
-    let overload_method_trait_impls = overload_sets
-        .iter()
-        .map(|overload_set| {
-            let method_name = &overload_set.method_name;
-            let dummy_trait_name = &overload_set.dummy_trait_name;
-            let method_trait_name = &overload_set.method_trait_name;
-            let param_names = &overload_set.param_names;
-            let generic_type_params = &overload_set.generic_type_params;
-
-            let stream = quote! {
-                impl<#lifetime, #( #generic_params ),*>
-                    #method_trait_name<#lifetime, #( #generic_args ),* >
-                for ::graph::Graph<
-                    #lifetime,
-                    super::generic_enum::#base_type<
-                        #lifetime, ::graph::Storage<#lifetime>
-                        #( , #generic_args )*
-                    >> {
-                    fn #method_name< #( #generic_type_params ),* >(
-                        &mut self,
-                        #( #param_names: #generic_type_params, )*
-                    ) -> ::graph::GraphBuilderRef<<
-                            OverloadDummy as #dummy_trait_name
-                                <#lifetime  #( , #generic_type_params )* #( , #generic_args)* >
-                            >::OutNode>
-                    where
-                        OverloadDummy: #dummy_trait_name
-                        <#lifetime #( , #generic_type_params )* #( , #generic_args )* > {
-                        <OverloadDummy as #dummy_trait_name
-                         <#lifetime #( , #generic_type_params )* #( , #generic_args )* >
-                        >::#method_name(self, #( #param_names ),* )
-                    }
-                }
-            };
-            syn::parse2(stream).expect("Error parsing overloaded method trait")
-        })
-        .collect::<Vec<syn::Item>>()
-        .into_iter();
-
-    std::iter::empty()
-        .chain(overload_dummy_traits)
-        .chain(overload_dummy_trait_impls)
-        .chain(overload_method_trait)
-        .chain(overload_method_trait_impls)
 }
 
 fn apply_generator<'a, G, I>(
@@ -931,38 +470,22 @@ pub fn linearize_recursive_enums(
         .chain(apply_generator(
             &enums,
             Some("generic_enum"),
-            generate_generic_node_trait_impl,
+            generate_recursive_obj_impl,
         ))
         .chain(apply_generator(
             &enums,
-            Some("generic_enum"),
-            generate_generic_enum_try_from_selector_impl,
+            Some("family"),
+            generate_recursive_family,
         ))
         .chain(apply_generator(
             &enums,
-            Some("selector"),
-            generate_selector_enum,
+            Some("container"),
+            generate_container_enum,
         ))
         .chain(apply_generator(
             &enums,
-            Some("selector"),
-            generate_container_of_trait_impl,
-        ))
-        .chain(apply_generator(
-            &enums,
-            Some("selector"),
-            generate_selector_from_storage_impl,
-        ))
-        .chain(apply_generator(
-            &enums,
-            Some("builder"),
-            generate_typed_builder_trait,
-        ))
-        .chain(generate_overload_dummy_struct(Some("builder")))
-        .chain(apply_generator(
-            &enums,
-            Some("builder"),
-            generate_overloaded_builder_trait,
+            Some("container"),
+            generate_container_impl,
         ))
         .into_group_map()
         .into_iter()

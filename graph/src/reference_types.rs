@@ -1,25 +1,21 @@
-use std::marker::PhantomData;
-
-use crate::{GenericGraphNode, GraphRef, LiveGraphRef, Subgraph};
-
 /// Abstract across a type of references
 ///
 /// Allows the same generic enum definition to be used both as a value
 /// type using `GraphRef<T>` instances for recursive references and as
 /// a lifetimed type using `LiveGraphRef<'a, BaseType, T>` for
 /// recursive references.
-pub trait NodeUsage<'a>: 'a {
+pub trait RecursiveRefType<'a>: 'a {
     /// The representation to use for recursive references
     ///
     /// # Arguments
     ///
-    /// `Ptr` - The reference to represent
+    /// `T` - The type to which the reference points
     ///
     /// # Returns
     ///
-    /// The representation of a recursive reference to `NodeType` for
+    /// The representation of a recursive reference to `T` for
     /// this reference type.
-    type RefType<NodeType: ?Sized>;
+    type Ref<T: ?Sized>;
 
     /// The representation to use for all other types
     ///
@@ -31,70 +27,66 @@ pub trait NodeUsage<'a>: 'a {
     ///
     /// The representation of a value type `T` for this usage.
     /// (e.g. `T` for storage, `&T` for visiting)
-    type ValueType<T: 'a>;
+    type Value<T: 'a>;
 }
 
-pub trait NodeUsageConverter<'a, T: NodeUsage<'a>, U: NodeUsage<'a>> {
-    fn convert_reference<NodeType>(&self, t_ref: &'a T::RefType<NodeType>) -> U::RefType<NodeType>;
+/// Meta-object, at compile-time can generate an enum for a
+/// specific usage type.  At runtime, can convert between enums
+/// of different usage types.
+pub trait RecursiveFamily<'a>: 'a {
+    type Obj<R: RecursiveRefType<'a>>: RecursiveObj<'a, RefType = R, Family = Self> + 'a;
 
-    fn convert_value<ValueType: 'a>(
-        &self,
-        t_value: &'a T::ValueType<ValueType>,
-    ) -> U::ValueType<ValueType>;
+    type DefaultContainer: 'a;
+
+    fn view_ref<OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
+        old_obj: &'a Self::Obj<OldRef>,
+        viewer: &impl RefTypeViewer<'a, OldRef, NewRef>,
+    ) -> Self::Obj<NewRef>;
+
+    fn move_ref<OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
+        old_obj: Self::Obj<OldRef>,
+        viewer: &impl RefTypeMover<'a, OldRef, NewRef>,
+    ) -> Self::Obj<NewRef>;
 }
 
-/// Reference suitable for storing
-///
-/// A reference category that uses `GraphRef<NodeType>` to represent
-/// recursive references.
-#[derive(Debug)]
-pub struct Storage<'a> {
-    _node: PhantomData<&'a usize>,
+/// A recursive object, belonging to a specific family of
+/// recursive types, with a specific type in that family.  This
+/// trait is automatically implemented, and is used for functions
+/// that must derive their types from arguments, and return
+/// another type in the same family.  (e.g. `Builder::push`
+/// accepts an argument of type `F::Obj<Builder>` and must
+/// internally convert it to an object of type `F::Obj<Storage>`)
+pub trait RecursiveObj<'a>: 'a {
+    type Family: RecursiveFamily<'a>;
+    type RefType: RecursiveRefType<'a>;
 }
 
-impl<'a> NodeUsage<'a> for Storage<'a> {
-    type RefType<NodeType: ?Sized> = GraphRef<NodeType>;
-    type ValueType<T: 'a> = T;
-}
-
-/// Reference suitable for visiting subgraphs
-///
-/// A reference category that uses `LiveGraphRef<'a, BaseType,
-/// NodeType>` to represent recursive references.
-#[derive(Debug)]
-pub struct Live<'a, BaseType: GenericGraphNode<'a>> {
-    _node: PhantomData<&'a BaseType>,
-}
-
-impl<'a, BaseType: GenericGraphNode<'a>> NodeUsage<'a> for Live<'a, BaseType> {
-    type RefType<NodeType: ?Sized> = LiveGraphRef<'a, BaseType, NodeType>;
-    type ValueType<T: 'a> = &'a T;
-}
-
-pub struct StorageToLive<'a, BaseType: GenericGraphNode<'a>> {
-    subgraph: Subgraph<'a, BaseType>,
-}
-
-impl<'a, BaseType: GenericGraphNode<'a>> StorageToLive<'a, BaseType> {
-    pub(crate) fn new(subgraph: Subgraph<'a, BaseType>) -> Self {
-        Self { subgraph }
-    }
-}
-
-impl<'a, BaseType: GenericGraphNode<'a>> NodeUsageConverter<'a, Storage<'a>, Live<'a, BaseType>>
-    for StorageToLive<'a, BaseType>
+/// Convert between references of different usage types
+/// (e.g. build a Visitor enum from a Storage enum)
+pub trait RefTypeViewer<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>:
+    'a
 {
-    fn convert_reference<NodeType>(
-        &self,
-        graph_ref: &GraphRef<NodeType>,
-    ) -> LiveGraphRef<'a, BaseType, NodeType> {
-        LiveGraphRef {
-            subgraph: self.subgraph.clone(),
-            graph_ref: *graph_ref,
-        }
-    }
+    fn view_reference<T>(&self, old_ref: &OldRef::Ref<T>) -> NewRef::Ref<T>;
+    fn view_value<T>(&self, value: &'a OldRef::Value<T>) -> NewRef::Value<T>;
+}
 
-    fn convert_value<ValueType: 'a>(&self, t_value: &'a ValueType) -> &'a ValueType {
-        t_value
-    }
+/// Convert between references of different usage types
+/// (e.g. build a Storage enum from a Builder enum)
+pub trait RefTypeMover<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>: 'a {
+    fn move_reference<T>(&self, old_ref: OldRef::Ref<T>) -> NewRef::Ref<T>;
+    fn move_value<T>(&self, value: OldRef::Value<T>) -> NewRef::Value<T>;
+}
+
+/// Utility reference type, used to avoid infinite recursion at
+/// compile-time.  This makes the types in the converter easier,
+/// because both old and new types share the same internal
+/// structures.  Converting `OldRef::Ref<Enum<NilRefType>>` to
+/// `NewRef::Ref<Enum<NilRefType>>` only requires changing the
+/// outer type, whereas converting `OldRef::Ref<Enum<OldRef>>` to
+/// `NewRef::Ref<Enum<NewRef>>` would also require converting the
+/// inner reference.
+pub struct NilRefType;
+impl<'a> RecursiveRefType<'a> for NilRefType {
+    type Ref<T: ?Sized> = ();
+    type Value<T: 'a> = ();
 }

@@ -95,10 +95,7 @@ mod graph2 {
     /// be able to represent any individual node type that may occur
     /// within the tree.  These should be expected by implementing
     /// `ContainerOf<Node>` for each type that may be contained.
-    pub struct TypedTree<'a,
-        RootNodeType: RecursiveObj<'a>,
-        Container = <<RootNodeType as RecursiveObj<'a>>::Family as RecursiveFamily>::DefaultContainer<'a>,
-    > {
+    pub struct TypedTree<'a, RootNodeType: RecursiveObj<'a>, Container> {
         nodes: Vec<Container>,
         _phantom: PhantomData<*const RootNodeType>,
         _a: PhantomData<&'a usize>,
@@ -115,42 +112,43 @@ mod graph2 {
     /// - `trait_alias`: https://github.com/rust-lang/rust/issues/41517
     /// - `implied_bounds`: https://github.com/rust-lang/rust/issues/44491
     /// - `provide_any`: https://github.com/rust-lang/rust/issues/96024
-    pub trait ContainerOf<'a, R: RecursiveObj<'a>>: 'a {
-        fn to_container(val: <R::Family as RecursiveFamily>::Obj<'a, Storage>) -> Self;
-        fn from_container(
-            &'a self,
-        ) -> Result<&'a <R::Family as RecursiveFamily>::Obj<'a, Storage>, graph::Error>;
+    pub trait ContainerOf<T> {
+        fn to_container(val: T) -> Self;
+        fn from_container<'a>(&'a self) -> Result<&'a T, graph::Error>
+        where
+            T: 'a;
     }
 
     /// Inverse of `ContainerOf`, marks a node type as being stored
     /// inside a specific `Container`.  Automatically implemented in
     /// terms of `ContainerOf`.
-    pub trait ContainedBy<'a, Container>: 'a {
+    pub trait ContainedBy<Container> {
         fn to_container(self) -> Container;
-        fn from_container(container: &'a Container) -> Result<&'a Self, graph::Error>;
+        fn from_container<'a>(container: &'a Container) -> Result<&'a Self, graph::Error>
+        where
+            Self: 'a;
+    }
+
+    impl<T, Container: ContainerOf<T>> ContainedBy<Container> for T {
+        fn to_container(self) -> Container {
+            Container::to_container(self)
+        }
+        fn from_container<'a>(container: &'a Container) -> Result<&'a Self, graph::Error>
+        where
+            Self: 'a,
+        {
+            container.from_container()
+        }
     }
 
     impl<
             'a,
             F: RecursiveFamily,
-            T: RecursiveObj<'a, Family = F, RefType = Storage>,
-            Container: ContainerOf<'a, T>,
-        > ContainedBy<'a, Container> for T
+            RootNodeType: RecursiveObj<'a, Family = F, RefType = Storage>,
+            Container,
+        > TypedTree<'a, RootNodeType, Container>
     where
-        F: RecursiveFamily<Obj<'a, Storage> = T>,
-    {
-        fn to_container(self) -> Container {
-            Container::to_container(self)
-        }
-        fn from_container(container: &'a Container) -> Result<&'a Self, graph::Error> {
-            container.from_container()
-        }
-    }
-
-    impl<'a, F: RecursiveFamily, RootNodeType: RecursiveObj<'a, Family = F>, Container>
-        TypedTree<'a, RootNodeType, Container>
-    where
-        Container: ContainerOf<'a, RootNodeType>,
+        Container: ContainerOf<F::Obj<'a, Storage>>,
     {
         pub fn borrow(&'a self) -> Result<F::Obj<'a, Visiting<'a, Container>>, graph::Error> {
             let container: &Container = self.nodes.last().unwrap();
@@ -200,7 +198,7 @@ mod graph2 {
             builder_obj: T,
         ) -> BuilderRef<F::Obj<'a, Storage>>
         where
-            F::Obj<'a, Storage>: ContainedBy<'a, Container>,
+            F::Obj<'a, Storage>: ContainedBy<Container>,
             F: RecursiveFamily<Obj<'a, Builder> = T>,
             Container: 'a,
         {
@@ -251,8 +249,8 @@ mod graph2 {
     impl<
             'a,
             Family: RecursiveFamily,
-            T: RecursiveObj<'a, Family = Family>,
-            Container: ContainerOf<'a, T>,
+            T: RecursiveObj<'a, Family = Family, RefType = Storage>,
+            Container: ContainerOf<Family::Obj<'a, Storage>>,
         > VisitingRef<'a, T, Container>
     {
         pub fn borrow(&self) -> Result<Family::Obj<'a, Visiting<'a, Container>>, graph::Error> {
@@ -381,13 +379,14 @@ pub mod peano {
         Number(Number<'a, Storage>),
     }
 
-    impl<'a, RefType: RecursiveRefType<'a>> ContainerOf<'a, Number<'a, RefType>>
-        for NumberContainer<'a>
-    {
-        fn to_container(val: Number<'a, Storage>) -> Self {
+    impl<'b> ContainerOf<Number<'b>> for NumberContainer<'b> {
+        fn to_container(val: Number<'b>) -> Self {
             Self::Number(val)
         }
-        fn from_container(&self) -> Result<&Number<'a, Storage>, graph::Error> {
+        fn from_container<'a>(&'a self) -> Result<&Number<'b>, graph::Error>
+        where
+            Number<'b>: 'a,
+        {
             match self {
                 Self::Number(val) => Ok(val),
             }
@@ -395,7 +394,9 @@ pub mod peano {
     }
 }
 
-impl<'a> graph2::TypedTree<'a, peano::Number<'a>> {
+impl<'a, Container: graph2::ContainerOf<peano::Number<'a>> + 'a>
+    graph2::TypedTree<'a, peano::Number<'a>, Container>
+{
     fn new(val: u8) -> Self {
         let mut builder = graph2::Builder::new();
         let mut a = builder.push(peano::Number::Zero);
@@ -406,7 +407,7 @@ impl<'a> graph2::TypedTree<'a, peano::Number<'a>> {
     }
 }
 
-impl<'a, Container: graph2::ContainerOf<'a, peano::Number<'a>>>
+impl<'a, Container: graph2::ContainerOf<peano::Number<'a>>>
     peano::Number<'a, graph2::Visiting<'a, Container>>
 {
     fn value(&self) -> usize {
@@ -436,7 +437,7 @@ fn construct_annotated() {
 
 #[test]
 fn construct_unannotated() {
-    let _three: graph2::TypedTree<peano::Number> = {
+    let _three: graph2::TypedTree<peano::Number, peano::NumberContainer> = {
         let mut builder = graph2::Builder::new();
         let mut a = builder.push(peano::Number::Zero);
 
@@ -449,13 +450,13 @@ fn construct_unannotated() {
 
 #[test]
 fn call_static_method() {
-    let _three = graph2::TypedTree::<peano::Number>::new(3);
+    let _three = graph2::TypedTree::<peano::Number, peano::NumberContainer>::new(3);
 }
 
 #[test]
 fn match_root() -> Result<(), graph::Error> {
-    let zero = graph2::TypedTree::<peano::Number>::new(0);
-    let one = graph2::TypedTree::<peano::Number>::new(1);
+    let zero = graph2::TypedTree::<peano::Number, peano::NumberContainer>::new(0);
+    let one = graph2::TypedTree::<peano::Number, peano::NumberContainer>::new(1);
 
     use peano::Number;
     assert!(matches!(zero.borrow()?, Number::Zero));
@@ -466,7 +467,7 @@ fn match_root() -> Result<(), graph::Error> {
 
 #[test]
 fn match_live_ref() -> Result<(), graph::Error> {
-    let three = graph2::TypedTree::<peano::Number>::new(3);
+    let three = graph2::TypedTree::<peano::Number, peano::NumberContainer>::new(3);
 
     use peano::Number;
     let value = match three.borrow()? {
@@ -493,7 +494,7 @@ fn match_live_ref() -> Result<(), graph::Error> {
 
 #[test]
 fn call_instance_method() -> Result<(), graph::Error> {
-    let three = graph2::TypedTree::<peano::Number>::new(3);
+    let three = graph2::TypedTree::<peano::Number, peano::NumberContainer>::new(3);
     let value = three.borrow()?.value();
     assert_eq!(value, 3);
     Ok(())
@@ -558,13 +559,14 @@ pub mod direct_expr {
         IntExpr(IntExpr<'a, Storage>),
     }
 
-    impl<'a, RefType: RecursiveRefType<'a>> ContainerOf<'a, IntExpr<'a, RefType>>
-        for IntExprContainer<'a>
-    {
-        fn to_container(val: IntExpr<'a, Storage>) -> Self {
+    impl<'b> ContainerOf<IntExpr<'b>> for IntExprContainer<'b> {
+        fn to_container(val: IntExpr<'b>) -> Self {
             Self::IntExpr(val)
         }
-        fn from_container(&self) -> Result<&IntExpr<'a, Storage>, graph::Error> {
+        fn from_container<'a>(&'a self) -> Result<&IntExpr<'b>, graph::Error>
+        where
+            IntExpr<'b>: 'a,
+        {
             match self {
                 Self::IntExpr(val) => Ok(val),
             }
@@ -572,13 +574,15 @@ pub mod direct_expr {
     }
 }
 
-impl<'a> graph2::TypedTree<'a, direct_expr::IntExpr<'a>> {
+impl<'a, Container: graph2::ContainerOf<direct_expr::IntExpr<'a>>>
+    graph2::TypedTree<'a, direct_expr::IntExpr<'a>, Container>
+{
     fn eval(&'a self) -> i64 {
         self.borrow().unwrap().eval()
     }
 }
 
-impl<'a, Container: graph2::ContainerOf<'a, direct_expr::IntExpr<'a>>>
+impl<'a, Container: graph2::ContainerOf<direct_expr::IntExpr<'a>>>
     direct_expr::IntExpr<'a, graph2::Visiting<'a, Container>>
 {
     fn eval(&self) -> i64 {
@@ -593,7 +597,7 @@ impl<'a, Container: graph2::ContainerOf<'a, direct_expr::IntExpr<'a>>>
 #[test]
 fn eval_int_expr() -> Result<(), graph::Error> {
     use direct_expr::IntExpr;
-    let expr: graph2::TypedTree<IntExpr> = {
+    let expr: graph2::TypedTree<IntExpr, direct_expr::IntExprContainer> = {
         let mut builder = graph2::Builder::new();
         let a = builder.push(IntExpr::Int(5));
         let b = builder.push(IntExpr::Int(10));
@@ -616,7 +620,7 @@ fn eval_int_expr_with_reference() -> Result<(), graph::Error> {
 
     let data = vec![5, 10, 100];
 
-    let expr: graph2::TypedTree<IntExpr> = {
+    let expr: graph2::TypedTree<IntExpr, direct_expr::IntExprContainer> = {
         let mut builder = graph2::Builder::new();
         let a = builder.push(IntExpr::IntRef(&data[0]));
         let b = builder.push(IntExpr::IntRef(&data[1]));

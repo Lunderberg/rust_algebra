@@ -65,20 +65,6 @@ mod graph2 {
         fn move_value<T>(&self, value: OldRef::Value<T>) -> NewRef::Value<T>;
     }
 
-    /// Utility reference type, used to avoid infinite recursion at
-    /// compile-time.  This makes the types in the converter easier,
-    /// because both old and new types share the same internal
-    /// structures.  Converting `OldRef::Ref<Enum<NilRefType>>` to
-    /// `NewRef::Ref<Enum<NilRefType>>` only requires changing the
-    /// outer type, whereas converting `OldRef::Ref<Enum<OldRef>>` to
-    /// `NewRef::Ref<Enum<NewRef>>` would also require converting the
-    /// inner reference.
-    pub struct NilRefType;
-    impl<'a> RecursiveRefType<'a> for NilRefType {
-        type Ref<T: ?Sized> = ();
-        type Value<T: 'a> = ();
-    }
-
     /////////////////////////////////////
     ////////////// Storage //////////////
     /////////////////////////////////////
@@ -212,7 +198,7 @@ mod graph2 {
         pub fn push<'a, F: RecursiveFamily, T: RecursiveObj<'a, RefType = Builder, Family = F>>(
             &mut self,
             builder_obj: T,
-        ) -> BuilderRef<F::Obj<'a, NilRefType>>
+        ) -> BuilderRef<F::Obj<'a, Storage>>
         where
             F::Obj<'a, Storage>: ContainedBy<'a, Container>,
             F: RecursiveFamily<Obj<'a, Builder> = T>,
@@ -353,9 +339,9 @@ pub mod peano {
 
     use super::graph2::*;
 
-    pub enum Number<'a, R: RecursiveRefType<'a> = NilRefType> {
+    pub enum Number<'a, R: RecursiveRefType<'a> = Storage> {
         Zero,
-        Successor(R::Ref<Number<'a, NilRefType>>),
+        Successor(R::Ref<Number<'a, Storage>>),
     }
 
     pub struct NumberFamily;
@@ -523,13 +509,10 @@ pub mod direct_expr {
 
     use super::graph2::*;
 
-    pub enum IntExpr<'a, R: RecursiveRefType<'a> = NilRefType> {
+    pub enum IntExpr<'a, R: RecursiveRefType<'a> = Storage> {
         Int(R::Value<i64>),
         IntRef(R::Value<&'a i64>),
-        Add(
-            R::Ref<IntExpr<'a, NilRefType>>,
-            R::Ref<IntExpr<'a, NilRefType>>,
-        ),
+        Add(R::Ref<IntExpr<'a, Storage>>, R::Ref<IntExpr<'a, Storage>>),
     }
 
     pub struct IntExprFamily;

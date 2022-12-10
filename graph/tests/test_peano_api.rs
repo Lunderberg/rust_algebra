@@ -180,18 +180,16 @@ mod graph2 {
     /////////////////////////////////////
 
     /// A constructor used to generate a `TypedTree<Container>`.
-    pub struct Builder<'a, Container: 'a> {
+    pub struct Builder;
+
+    pub struct BuilderObj<Container> {
         nodes: Vec<Container>,
-        _a: PhantomData<&'a usize>,
     }
 
-    impl<'a, Container> Builder<'a, Container> {
+    impl Builder {
         /// Constructs an empty `Builder`.
-        pub fn new() -> Self {
-            Self {
-                nodes: Vec::new(),
-                _a: PhantomData,
-            }
+        pub fn new<Container>() -> BuilderObj<Container> {
+            BuilderObj { nodes: Vec::new() }
         }
     }
 
@@ -204,23 +202,25 @@ mod graph2 {
         _node: PhantomData<*const T>,
     }
 
-    impl<'a, Container> RecursiveRefType<'a> for Builder<'a, Container> {
+    impl<'a> RecursiveRefType<'a> for Builder {
         type Ref<T: ?Sized> = BuilderRef<T>;
         type Value<T: 'a> = T;
     }
 
-    impl<'a, Container> Builder<'a, Container> {
+    impl<Container> BuilderObj<Container> {
         /// Insert a new node to the builder
         pub fn push<
+            'a,
             F: RecursiveFamily<'a>,
-            T: RecursiveObj<'a, RefType = Builder<'a, Container>, Family = F>,
+            T: RecursiveObj<'a, RefType = Builder, Family = F>,
         >(
             &mut self,
             builder_obj: T,
         ) -> BuilderRef<F::Obj<NilRefType>>
         where
             F::Obj<Storage>: ContainedBy<'a, Container>,
-            F: RecursiveFamily<'a, Obj<Builder<'a, Container>> = T>,
+            F: RecursiveFamily<'a, Obj<Builder> = T>,
+            Container: 'a,
         {
             let abs_pos = self.nodes.len();
             let converter = BuilderToStorage { size: abs_pos };
@@ -234,10 +234,10 @@ mod graph2 {
         }
     }
 
-    impl<'a, RootNodeType: RecursiveObj<'a>, Container> From<Builder<'a, Container>>
+    impl<'a, RootNodeType: RecursiveObj<'a>, Container> From<BuilderObj<Container>>
         for TypedTree<'a, RootNodeType, Container>
     {
-        fn from(builder: Builder<Container>) -> Self {
+        fn from(builder: BuilderObj<Container>) -> Self {
             Self {
                 nodes: builder.nodes,
                 _phantom: PhantomData,
@@ -308,7 +308,7 @@ mod graph2 {
         size: usize,
     }
 
-    impl<'a, Container> RefTypeMover<'a, Builder<'a, Container>, Storage> for BuilderToStorage {
+    impl<'a> RefTypeMover<'a, Builder, Storage> for BuilderToStorage {
         fn move_reference<T>(&self, old_ref: BuilderRef<T>) -> StorageRef<T> {
             let rel_pos = self
                 .size
@@ -441,14 +441,12 @@ impl<'a, Container: graph2::ContainerOf<'a, peano::Number<'a>>>
 #[test]
 fn construct_annotated() {
     let _three: graph2::TypedTree<peano::Number<graph2::Storage>, peano::NumberContainer> = {
-        let mut builder = graph2::Builder::<peano::NumberContainer>::new();
-        let mut a: graph2::BuilderRef<peano::Number<_>> = builder.push::<peano::NumberFamily, _>(
-            peano::Number::<graph2::Builder<peano::NumberContainer>>::Zero,
-        );
+        let mut builder = graph2::Builder::new::<peano::NumberContainer>();
+        let mut a: graph2::BuilderRef<peano::Number<_>> =
+            builder.push::<peano::NumberFamily, _>(peano::Number::<graph2::Builder>::Zero);
         for _ in 0..3 {
-            a = builder.push::<peano::NumberFamily, _>(peano::Number::<
-                graph2::Builder<peano::NumberContainer>,
-            >::Successor(a));
+            a = builder
+                .push::<peano::NumberFamily, _>(peano::Number::<graph2::Builder>::Successor(a));
         }
         builder.into()
     };

@@ -24,15 +24,15 @@ mod graph2 {
 
         type DefaultContainer<'a>: 'a;
 
-        fn view_ref<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
-            old_obj: &'a Self::Obj<'a, OldRef>,
-            viewer: &impl RefTypeViewer<'a, OldRef, NewRef>,
-        ) -> Self::Obj<'a, NewRef>;
+        fn builder_to_storage<'a>(
+            builder_obj: Self::Obj<'a, Builder>,
+            converter: BuilderToStorage,
+        ) -> Self::Obj<'a, Storage>;
 
-        fn move_ref<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
-            old_obj: Self::Obj<'a, OldRef>,
-            viewer: &impl RefTypeMover<'a, OldRef, NewRef>,
-        ) -> Self::Obj<'a, NewRef>;
+        fn storage_to_visiting<'a, Container>(
+            builder_obj: &'a Self::Obj<'a, Storage>,
+            converter: StorageToVisiting<'a, Container>,
+        ) -> Self::Obj<'a, Visiting<'a, Container>>;
     }
 
     /// A recursive object, belonging to a specific family of
@@ -44,25 +44,8 @@ mod graph2 {
     /// internally convert it to an object of type `F::Obj<Storage>`)
     pub trait RecursiveObj<'a>: 'a {
         type Family: RecursiveFamily;
+        // type Family: RecursiveFamily<Obj<'a, Self::RefType> = Self>;
         type RefType: RecursiveRefType<'a>;
-    }
-
-    /// Convert between references of different usage types
-    /// (e.g. build a Visitor enum from a Storage enum)
-    pub trait RefTypeViewer<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>:
-        'a
-    {
-        fn view_reference<T>(&self, old_ref: &OldRef::Ref<T>) -> NewRef::Ref<T>;
-        fn view_value<T>(&self, value: &'a OldRef::Value<T>) -> NewRef::Value<T>;
-    }
-
-    /// Convert between references of different usage types
-    /// (e.g. build a Storage enum from a Builder enum)
-    pub trait RefTypeMover<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>:
-        'a
-    {
-        fn move_reference<T>(&self, old_ref: OldRef::Ref<T>) -> NewRef::Ref<T>;
-        fn move_value<T>(&self, value: OldRef::Value<T>) -> NewRef::Value<T>;
     }
 
     /////////////////////////////////////
@@ -87,15 +70,37 @@ mod graph2 {
         _node: PhantomData<*const T>,
     }
 
+    impl<T: ?Sized> Clone for StorageRef<T> {
+        fn clone(&self) -> Self {
+            Self {
+                rel_pos: self.rel_pos,
+                _node: PhantomData,
+            }
+        }
+    }
+
     ///////////////////////////////////////
     ////////////// TypedTree //////////////
     ///////////////////////////////////////
+
+    pub trait Visitable<'a> {
+        type Family: RecursiveFamily;
+        type Container: ContainerOf<<Self::Family as RecursiveFamily>::Obj<'a, Storage>>;
+        fn borrow<'b>(
+            &'b self,
+        ) -> Result<
+            <Self::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Self::Container>>,
+            graph::Error,
+        >
+        where
+            'b: 'a;
+    }
 
     /// A container for an entire tree structure.  The container must
     /// be able to represent any individual node type that may occur
     /// within the tree.  These should be expected by implementing
     /// `ContainerOf<Node>` for each type that may be contained.
-    pub struct TypedTree<'a, RootNodeType: RecursiveObj<'a>, Container> {
+    pub struct TypedTree<'a, RootNodeType: RecursiveObj<'a, RefType = Storage>, Container> {
         nodes: Vec<Container>,
         _phantom: PhantomData<*const RootNodeType>,
         _a: PhantomData<&'a usize>,
@@ -143,18 +148,28 @@ mod graph2 {
 
     impl<
             'a,
-            F: RecursiveFamily,
-            RootNodeType: RecursiveObj<'a, Family = F, RefType = Storage>,
-            Container,
-        > TypedTree<'a, RootNodeType, Container>
+            RootNodeType: RecursiveObj<'a, RefType = Storage>,
+            Container: ContainerOf<RootNodeType>,
+        > Visitable<'a> for TypedTree<'a, RootNodeType, Container>
     where
-        Container: ContainerOf<F::Obj<'a, Storage>>,
+        RootNodeType::Family: RecursiveFamily<Obj<'a, Storage> = RootNodeType>,
     {
-        pub fn borrow(&'a self) -> Result<F::Obj<'a, Visiting<'a, Container>>, graph::Error> {
+        type Family = RootNodeType::Family;
+        type Container = Container;
+
+        fn borrow<'b>(
+            &'b self,
+        ) -> Result<
+            <Self::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Self::Container>>,
+            graph::Error,
+        >
+        where
+            'b: 'a,
+        {
             let container: &Container = self.nodes.last().unwrap();
-            let node: &F::Obj<'a, Storage> = container.from_container()?;
+            let node: &RootNodeType = container.from_container()?;
             let converter = StorageToVisiting { view: &self.nodes };
-            let live_ref = F::view_ref(node, &converter);
+            let live_ref = Self::Family::storage_to_visiting(node, converter);
             Ok(live_ref)
         }
     }
@@ -204,7 +219,7 @@ mod graph2 {
         {
             let abs_pos = self.nodes.len();
             let converter = BuilderToStorage { size: abs_pos };
-            let storage_obj: F::Obj<'a, Storage> = F::move_ref(builder_obj, &converter);
+            let storage_obj: F::Obj<'a, Storage> = F::builder_to_storage(builder_obj, converter);
             let container: Container = storage_obj.to_container();
             self.nodes.push(container);
             BuilderRef {
@@ -214,8 +229,8 @@ mod graph2 {
         }
     }
 
-    impl<'a, RootNodeType: RecursiveObj<'a>, Container> From<BuilderObj<Container>>
-        for TypedTree<'a, RootNodeType, Container>
+    impl<'a, RootNodeType: RecursiveObj<'a, RefType = Storage>, Container>
+        From<BuilderObj<Container>> for TypedTree<'a, RootNodeType, Container>
     {
         fn from(builder: BuilderObj<Container>) -> Self {
             Self {
@@ -235,6 +250,7 @@ mod graph2 {
         _c: PhantomData<*const Container>,
     }
 
+    #[derive(Clone)]
     pub struct VisitingRef<'a, T: ?Sized, Container: 'a> {
         rel_pos: usize,
         view: &'a [Container],
@@ -273,7 +289,7 @@ mod graph2 {
             let converter = StorageToVisiting {
                 view: &self.view[..=index],
             };
-            let live_ref = Family::view_ref(node, &converter);
+            let live_ref = Family::storage_to_visiting(node, converter);
             Ok(live_ref)
         }
     }
@@ -284,12 +300,12 @@ mod graph2 {
 
     /// Converts from Builder references using absolute position to
     /// Storage references using relative position.
-    struct BuilderToStorage {
+    pub struct BuilderToStorage {
         size: usize,
     }
 
-    impl<'a> RefTypeMover<'a, Builder, Storage> for BuilderToStorage {
-        fn move_reference<T>(&self, old_ref: BuilderRef<T>) -> StorageRef<T> {
+    impl BuilderToStorage {
+        pub fn move_reference<T>(&self, old_ref: BuilderRef<T>) -> StorageRef<T> {
             let rel_pos = self
                 .size
                 .checked_sub(old_ref.abs_pos)
@@ -299,34 +315,29 @@ mod graph2 {
                 _node: PhantomData,
             }
         }
-
-        fn move_value<T>(&self, value: T) -> T {
-            value
-        }
     }
 
     /// Converts from Storage references as they are stored in the
     /// contiguous array to a Visiting reference
-    struct StorageToVisiting<'a, Container> {
+    pub struct StorageToVisiting<'a, Container> {
         view: &'a [Container],
     }
 
-    impl<'a, Container> RefTypeViewer<'a, Storage, Visiting<'a, Container>>
-        for StorageToVisiting<'a, Container>
-    {
-        fn view_reference<T>(&self, old_ref: &StorageRef<T>) -> VisitingRef<'a, T, Container> {
+    impl<'a, Container> StorageToVisiting<'a, Container> {
+        pub fn view_reference<T>(
+            &self,
+            storage_ref: &StorageRef<T>,
+        ) -> VisitingRef<'a, T, Container> {
             VisitingRef {
-                rel_pos: old_ref.rel_pos,
+                rel_pos: storage_ref.rel_pos,
                 view: self.view,
                 _phantom: PhantomData,
             }
         }
-
-        fn view_value<T>(&self, value: &'a T) -> &'a T {
-            value
-        }
     }
 }
+
+use graph2::Visitable;
 
 pub mod peano {
     // Initial definition
@@ -349,23 +360,23 @@ pub mod peano {
 
         type DefaultContainer<'a> = NumberContainer<'a>;
 
-        fn view_ref<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
-            old_obj: &Self::Obj<'a, OldRef>,
-            converter: &impl RefTypeViewer<'a, OldRef, NewRef>,
-        ) -> Self::Obj<'a, NewRef> {
-            match old_obj {
+        fn builder_to_storage<'a>(
+            builder_obj: Self::Obj<'a, Builder>,
+            converter: BuilderToStorage,
+        ) -> Self::Obj<'a, Storage> {
+            match builder_obj {
                 Number::Zero => Number::Zero,
-                Number::Successor(old_ref) => Number::Successor(converter.view_reference(old_ref)),
+                Number::Successor(old_ref) => Number::Successor(converter.move_reference(old_ref)),
             }
         }
 
-        fn move_ref<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
-            old_obj: Self::Obj<'a, OldRef>,
-            converter: &impl RefTypeMover<'a, OldRef, NewRef>,
-        ) -> Self::Obj<'a, NewRef> {
-            match old_obj {
+        fn storage_to_visiting<'a, Container>(
+            builder_obj: &'a Self::Obj<'a, Storage>,
+            converter: StorageToVisiting<'a, Container>,
+        ) -> Self::Obj<'a, Visiting<'a, Container>> {
+            match &builder_obj {
                 Number::Zero => Number::Zero,
-                Number::Successor(old_ref) => Number::Successor(converter.move_reference(old_ref)),
+                Number::Successor(old_ref) => Number::Successor(converter.view_reference(old_ref)),
             }
         }
     }
@@ -523,28 +534,28 @@ pub mod direct_expr {
 
         type DefaultContainer<'a> = IntExprContainer<'a>;
 
-        fn view_ref<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
-            old_obj: &'a Self::Obj<'a, OldRef>,
-            converter: &impl RefTypeViewer<'a, OldRef, NewRef>,
-        ) -> Self::Obj<'a, NewRef> {
-            match old_obj {
-                IntExpr::Int(val) => IntExpr::Int(converter.view_value(val)),
-                IntExpr::IntRef(val) => IntExpr::IntRef(converter.view_value(val)),
+        fn builder_to_storage<'a>(
+            builder_obj: Self::Obj<'a, Builder>,
+            converter: BuilderToStorage,
+        ) -> Self::Obj<'a, Storage> {
+            match builder_obj {
+                IntExpr::Int(val) => IntExpr::Int(val),
+                IntExpr::IntRef(val) => IntExpr::IntRef(val),
                 IntExpr::Add(a, b) => {
-                    IntExpr::Add(converter.view_reference(a), converter.view_reference(b))
+                    IntExpr::Add(converter.move_reference(a), converter.move_reference(b))
                 }
             }
         }
 
-        fn move_ref<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
-            old_obj: Self::Obj<'a, OldRef>,
-            converter: &impl RefTypeMover<'a, OldRef, NewRef>,
-        ) -> Self::Obj<'a, NewRef> {
-            match old_obj {
-                IntExpr::Int(val) => IntExpr::Int(converter.move_value(val)),
-                IntExpr::IntRef(val) => IntExpr::IntRef(converter.move_value(val)),
+        fn storage_to_visiting<'a, Container>(
+            builder_obj: &'a Self::Obj<'a, Storage>,
+            converter: StorageToVisiting<'a, Container>,
+        ) -> Self::Obj<'a, Visiting<'a, Container>> {
+            match builder_obj {
+                IntExpr::Int(val) => IntExpr::Int(val),
+                IntExpr::IntRef(val) => IntExpr::IntRef(val),
                 IntExpr::Add(a, b) => {
-                    IntExpr::Add(converter.move_reference(a), converter.move_reference(b))
+                    IntExpr::Add(converter.view_reference(a), converter.view_reference(b))
                 }
             }
         }

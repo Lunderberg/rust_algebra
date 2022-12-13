@@ -20,9 +20,7 @@ mod graph2 {
     /// specific usage type.  At runtime, can convert between enums
     /// of different usage types.
     pub trait RecursiveFamily {
-        type Obj<'a, R: RecursiveRefType<'a>>: RecursiveObj<'a, RefType = R, Family = Self> + 'a;
-
-        type DefaultContainer<'a>: 'a;
+        type Obj<'a, R: RecursiveRefType<'a>>: RecursiveObj<'a, RefType = R, Family = Self>;
 
         fn builder_to_storage<'a>(
             builder_obj: Self::Obj<'a, Builder>,
@@ -30,7 +28,7 @@ mod graph2 {
         ) -> Self::Obj<'a, Storage>;
 
         fn storage_to_visiting<'a, Container>(
-            builder_obj: &'a Self::Obj<'a, Storage>,
+            storage_obj: &'a Self::Obj<'a, Storage>,
             converter: StorageToVisiting<'a, Container>,
         ) -> Self::Obj<'a, Visiting<'a, Container>>;
     }
@@ -43,8 +41,7 @@ mod graph2 {
     /// accepts an argument of type `F::Obj<Builder>` and must
     /// internally convert it to an object of type `F::Obj<Storage>`)
     pub trait RecursiveObj<'a>: 'a {
-        type Family: RecursiveFamily;
-        // type Family: RecursiveFamily<Obj<'a, Self::RefType> = Self>;
+        type Family: RecursiveFamily<Obj<'a, Self::RefType> = Self>;
         type RefType: RecursiveRefType<'a>;
     }
 
@@ -86,14 +83,12 @@ mod graph2 {
     pub trait Visitable<'a> {
         type Family: RecursiveFamily;
         type Container: ContainerOf<<Self::Family as RecursiveFamily>::Obj<'a, Storage>>;
-        fn borrow<'b>(
+        fn borrow<'b: 'a>(
             &'b self,
         ) -> Result<
             <Self::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Self::Container>>,
             graph::Error,
-        >
-        where
-            'b: 'a;
+        >;
     }
 
     /// A container for an entire tree structure.  The container must
@@ -119,9 +114,7 @@ mod graph2 {
     /// - `provide_any`: https://github.com/rust-lang/rust/issues/96024
     pub trait ContainerOf<T> {
         fn to_container(val: T) -> Self;
-        fn from_container<'a>(&'a self) -> Result<&'a T, graph::Error>
-        where
-            T: 'a;
+        fn from_container(&self) -> Result<&T, graph::Error>;
     }
 
     /// Inverse of `ContainerOf`, marks a node type as being stored
@@ -129,19 +122,14 @@ mod graph2 {
     /// terms of `ContainerOf`.
     pub trait ContainedBy<Container> {
         fn to_container(self) -> Container;
-        fn from_container<'a>(container: &'a Container) -> Result<&'a Self, graph::Error>
-        where
-            Self: 'a;
+        fn from_container<'a>(container: &'a Container) -> Result<&'a Self, graph::Error>;
     }
 
     impl<T, Container: ContainerOf<T>> ContainedBy<Container> for T {
         fn to_container(self) -> Container {
             Container::to_container(self)
         }
-        fn from_container<'a>(container: &'a Container) -> Result<&'a Self, graph::Error>
-        where
-            Self: 'a,
-        {
+        fn from_container<'a>(container: &'a Container) -> Result<&'a Self, graph::Error> {
             container.from_container()
         }
     }
@@ -151,21 +139,16 @@ mod graph2 {
             RootNodeType: RecursiveObj<'a, RefType = Storage>,
             Container: ContainerOf<RootNodeType>,
         > Visitable<'a> for TypedTree<'a, RootNodeType, Container>
-    where
-        RootNodeType::Family: RecursiveFamily<Obj<'a, Storage> = RootNodeType>,
     {
         type Family = RootNodeType::Family;
         type Container = Container;
 
-        fn borrow<'b>(
+        fn borrow<'b: 'a>(
             &'b self,
         ) -> Result<
             <Self::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Self::Container>>,
             graph::Error,
-        >
-        where
-            'b: 'a,
-        {
+        > {
             let container: &Container = self.nodes.last().unwrap();
             let node: &RootNodeType = container.from_container()?;
             let converter = StorageToVisiting { view: &self.nodes };
@@ -208,18 +191,18 @@ mod graph2 {
 
     impl<Container> BuilderObj<Container> {
         /// Insert a new node to the builder
-        pub fn push<'a, F: RecursiveFamily, T: RecursiveObj<'a, RefType = Builder, Family = F>>(
+        pub fn push<'a, T: RecursiveObj<'a, RefType = Builder>>(
             &mut self,
             builder_obj: T,
-        ) -> BuilderRef<F::Obj<'a, Storage>>
+        ) -> BuilderRef<<T::Family as RecursiveFamily>::Obj<'a, Storage>>
         where
-            F::Obj<'a, Storage>: ContainedBy<Container>,
-            F: RecursiveFamily<Obj<'a, Builder> = T>,
-            Container: 'a,
+            Container: ContainerOf<<T::Family as RecursiveFamily>::Obj<'a, Storage>>,
+            T::Family: RecursiveFamily<Obj<'a, Builder> = T>,
         {
             let abs_pos = self.nodes.len();
             let converter = BuilderToStorage { size: abs_pos };
-            let storage_obj: F::Obj<'a, Storage> = F::builder_to_storage(builder_obj, converter);
+            let storage_obj =
+                <T::Family as RecursiveFamily>::builder_to_storage(builder_obj, converter);
             let container: Container = storage_obj.to_container();
             self.nodes.push(container);
             BuilderRef {
@@ -358,8 +341,6 @@ pub mod peano {
     impl RecursiveFamily for NumberFamily {
         type Obj<'a, R: RecursiveRefType<'a>> = Number<'a, R>;
 
-        type DefaultContainer<'a> = NumberContainer<'a>;
-
         fn builder_to_storage<'a>(
             builder_obj: Self::Obj<'a, Builder>,
             converter: BuilderToStorage,
@@ -371,10 +352,10 @@ pub mod peano {
         }
 
         fn storage_to_visiting<'a, Container>(
-            builder_obj: &'a Self::Obj<'a, Storage>,
+            storage_obj: &'a Self::Obj<'a, Storage>,
             converter: StorageToVisiting<'a, Container>,
         ) -> Self::Obj<'a, Visiting<'a, Container>> {
-            match &builder_obj {
+            match &storage_obj {
                 Number::Zero => Number::Zero,
                 Number::Successor(old_ref) => Number::Successor(converter.view_reference(old_ref)),
             }
@@ -394,10 +375,7 @@ pub mod peano {
         fn to_container(val: Number<'b>) -> Self {
             Self::Number(val)
         }
-        fn from_container<'a>(&'a self) -> Result<&Number<'b>, graph::Error>
-        where
-            Number<'b>: 'a,
-        {
+        fn from_container(&self) -> Result<&Number<'b>, graph::Error> {
             match self {
                 Self::Number(val) => Ok(val),
             }
@@ -437,10 +415,11 @@ fn construct_annotated() {
     let _three: graph2::TypedTree<peano::Number<graph2::Storage>, peano::NumberContainer> = {
         let mut builder = graph2::Builder::new::<peano::NumberContainer>();
         let mut a: graph2::BuilderRef<peano::Number<_>> =
-            builder.push::<peano::NumberFamily, _>(peano::Number::<graph2::Builder>::Zero);
+            builder.push::<peano::Number<graph2::Builder>>(peano::Number::<graph2::Builder>::Zero);
         for _ in 0..3 {
-            a = builder
-                .push::<peano::NumberFamily, _>(peano::Number::<graph2::Builder>::Successor(a));
+            a = builder.push::<peano::Number<graph2::Builder>>(
+                peano::Number::<graph2::Builder>::Successor(a),
+            );
         }
         builder.into()
     };
@@ -532,8 +511,6 @@ pub mod direct_expr {
     impl RecursiveFamily for IntExprFamily {
         type Obj<'a, R: RecursiveRefType<'a>> = IntExpr<'a, R>;
 
-        type DefaultContainer<'a> = IntExprContainer<'a>;
-
         fn builder_to_storage<'a>(
             builder_obj: Self::Obj<'a, Builder>,
             converter: BuilderToStorage,
@@ -548,10 +525,10 @@ pub mod direct_expr {
         }
 
         fn storage_to_visiting<'a, Container>(
-            builder_obj: &'a Self::Obj<'a, Storage>,
+            storage_obj: &'a Self::Obj<'a, Storage>,
             converter: StorageToVisiting<'a, Container>,
         ) -> Self::Obj<'a, Visiting<'a, Container>> {
-            match builder_obj {
+            match storage_obj {
                 IntExpr::Int(val) => IntExpr::Int(val),
                 IntExpr::IntRef(val) => IntExpr::IntRef(val),
                 IntExpr::Add(a, b) => {
@@ -574,10 +551,7 @@ pub mod direct_expr {
         fn to_container(val: IntExpr<'b>) -> Self {
             Self::IntExpr(val)
         }
-        fn from_container<'a>(&'a self) -> Result<&IntExpr<'b>, graph::Error>
-        where
-            IntExpr<'b>: 'a,
-        {
+        fn from_container(&self) -> Result<&IntExpr<'b>, graph::Error> {
             match self {
                 Self::IntExpr(val) => Ok(val),
             }

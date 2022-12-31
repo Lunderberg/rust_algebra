@@ -38,19 +38,19 @@ impl<'a, Container> RecursiveRefType<'a> for Builder<'a, Container> {
 impl<'a, Container> Builder<'a, Container> {
     /// Insert a new node to the builder
     pub fn push<
-        F: RecursiveFamily<'a>,
+        F: RecursiveFamily,
         T: RecursiveObj<'a, RefType = Builder<'a, Container>, Family = F>,
     >(
         &mut self,
         builder_obj: T,
-    ) -> BuilderRef<F::Obj<NilRefType>>
+    ) -> BuilderRef<F::Obj<'a, NilRefType>>
     where
-        F::Obj<Storage>: ContainedBy<'a, Container>,
-        F: RecursiveFamily<'a, Obj<Builder<'a, Container>> = T>,
+        F::Obj<'a, Storage>: ContainedBy<'a, Container>,
+        F: RecursiveFamily<Obj<'a, Builder<'a, Container>> = T>,
     {
         let abs_pos = self.nodes.len();
         let converter = BuilderToStorage { size: abs_pos };
-        let storage_obj: F::Obj<Storage> = F::move_ref(builder_obj, &converter);
+        let storage_obj: F::Obj<'a, Storage> = F::move_ref(builder_obj, &converter);
         let container: Container = storage_obj.to_container();
         self.nodes.push(container);
         BuilderRef {

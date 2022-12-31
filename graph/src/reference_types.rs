@@ -33,20 +33,20 @@ pub trait RecursiveRefType<'a>: 'a {
 /// Meta-object, at compile-time can generate an enum for a
 /// specific usage type.  At runtime, can convert between enums
 /// of different usage types.
-pub trait RecursiveFamily<'a>: 'a {
-    type Obj<R: RecursiveRefType<'a>>: RecursiveObj<'a, RefType = R, Family = Self> + 'a;
+pub trait RecursiveFamily {
+    type Obj<'a, R: RecursiveRefType<'a>>: RecursiveObj<'a, RefType = R, Family = Self> + 'a;
 
-    type DefaultContainer: 'a;
+    type DefaultContainer<'a>: 'a;
 
-    fn view_ref<OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
-        old_obj: &'a Self::Obj<OldRef>,
+    fn view_ref<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
+        old_obj: &'a Self::Obj<'a, OldRef>,
         viewer: &impl RefTypeViewer<'a, OldRef, NewRef>,
-    ) -> Self::Obj<NewRef>;
+    ) -> Self::Obj<'a, NewRef>;
 
-    fn move_ref<OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
-        old_obj: Self::Obj<OldRef>,
+    fn move_ref<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
+        old_obj: Self::Obj<'a, OldRef>,
         viewer: &impl RefTypeMover<'a, OldRef, NewRef>,
-    ) -> Self::Obj<NewRef>;
+    ) -> Self::Obj<'a, NewRef>;
 }
 
 /// A recursive object, belonging to a specific family of
@@ -57,7 +57,7 @@ pub trait RecursiveFamily<'a>: 'a {
 /// accepts an argument of type `F::Obj<Builder>` and must
 /// internally convert it to an object of type `F::Obj<Storage>`)
 pub trait RecursiveObj<'a>: 'a {
-    type Family: RecursiveFamily<'a>;
+    type Family: RecursiveFamily;
     type RefType: RecursiveRefType<'a>;
 }
 

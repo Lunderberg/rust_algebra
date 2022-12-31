@@ -320,30 +320,33 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
         .unzip();
 
     let struct_impl = syn::parse2(quote! {
-        impl<#lifetime> ::graph::RecursiveFamily<#lifetime> for #ident {
-            type Obj<Ref: ::graph::RecursiveRefType<#lifetime>>
+        impl ::graph::RecursiveFamily for #ident {
+            type Obj<#lifetime, Ref: ::graph::RecursiveRefType<#lifetime>>
                 = super::generic_enum::#ident<#lifetime, Ref>;
 
-            type DefaultContainer = super::container::#ident<#lifetime>;
+            type DefaultContainer<#lifetime>
+                = super::container::#ident<#lifetime>;
 
 
-            fn view_ref<OldRef: ::graph::RecursiveRefType<#lifetime>,
+            fn view_ref<#lifetime,
+                        OldRef: ::graph::RecursiveRefType<#lifetime>,
                         NewRef: ::graph::RecursiveRefType<#lifetime> > (
-                old_obj: &'view Self::Obj<OldRef>,
+                old_obj: &'view Self::Obj<#lifetime, OldRef>,
                 converter: &impl ::graph::RefTypeViewer<
                         #lifetime, OldRef, NewRef>,
-            ) -> Self::Obj<NewRef> {
+            ) -> Self::Obj<#lifetime, NewRef> {
                 match old_obj {
                      #( #view_arms )*
                 }
             }
 
-            fn move_ref<OldRef: ::graph::RecursiveRefType<#lifetime>,
+            fn move_ref<#lifetime,
+                        OldRef: ::graph::RecursiveRefType<#lifetime>,
                         NewRef: ::graph::RecursiveRefType<#lifetime>> (
-                old_obj: Self::Obj<OldRef>,
+                old_obj: Self::Obj<#lifetime, OldRef>,
                 converter: &impl ::graph::RefTypeMover<
                         #lifetime, OldRef, NewRef>,
-            ) -> Self::Obj<NewRef> {
+            ) -> Self::Obj<#lifetime, NewRef> {
                 match old_obj {
                     #( #move_arms )*
                 }

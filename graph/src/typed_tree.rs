@@ -6,13 +6,16 @@ use crate::{RecursiveFamily, RecursiveObj, RecursiveRefType, StorageToVisiting};
 /// be able to represent any individual node type that may occur
 /// within the tree.  These should be expected by implementing
 /// `ContainerOf<Node>` for each type that may be contained.
-pub struct TypedTree<'a,
-        RootNodeType: RecursiveObj<'a>,
-        Container = <<RootNodeType as RecursiveObj<'a>>::Family as RecursiveFamily<'a>>::DefaultContainer,
-    > {
-        pub(crate) nodes: Vec<Container>,
-        pub(crate) _phantom: PhantomData<*const RootNodeType>,
-        pub(crate) _a: PhantomData<&'a usize>,
+pub struct TypedTree<
+    'a,
+    RootNodeType: RecursiveObj<'a>,
+    Container = <<RootNodeType as RecursiveObj<'a>>::Family as RecursiveFamily>::DefaultContainer<
+        'a,
+    >,
+> {
+    pub(crate) nodes: Vec<Container>,
+    pub(crate) _phantom: PhantomData<*const RootNodeType>,
+    pub(crate) _a: PhantomData<&'a usize>,
 }
 
 /// A usage annotation for objects that may be stored in the
@@ -77,10 +80,10 @@ impl<'a, Container> RecursiveRefType<'a> for Visiting<'a, Container> {
 /// - `implied_bounds`: https://github.com/rust-lang/rust/issues/44491
 /// - `provide_any`: https://github.com/rust-lang/rust/issues/96024
 pub trait ContainerOf<'a, R: RecursiveObj<'a>>: 'a {
-    fn to_container(val: <R::Family as RecursiveFamily<'a>>::Obj<Storage>) -> Self;
+    fn to_container(val: <R::Family as RecursiveFamily>::Obj<'a, Storage>) -> Self;
     fn from_container(
         &'a self,
-    ) -> Result<&'a <R::Family as RecursiveFamily<'a>>::Obj<Storage>, graph::Error>;
+    ) -> Result<&'a <R::Family as RecursiveFamily>::Obj<'a, Storage>, graph::Error>;
 }
 
 /// Inverse of `ContainerOf`, marks a node type as being stored
@@ -93,12 +96,12 @@ pub trait ContainedBy<'a, Container>: 'a {
 
 impl<
         'a,
-        F: RecursiveFamily<'a>,
+        F: RecursiveFamily,
         T: RecursiveObj<'a, Family = F, RefType = Storage>,
         Container: ContainerOf<'a, T>,
     > ContainedBy<'a, Container> for T
 where
-    F: RecursiveFamily<'a, Obj<Storage> = T>,
+    F: RecursiveFamily<Obj<'a, Storage> = T>,
 {
     fn to_container(self) -> Container {
         Container::to_container(self)
@@ -108,7 +111,7 @@ where
     }
 }
 
-impl<'a, F: RecursiveFamily<'a>, RootNodeType: RecursiveObj<'a, Family = F>, Container>
+impl<'a, F: RecursiveFamily, RootNodeType: RecursiveObj<'a, Family = F>, Container>
     TypedTree<'a, RootNodeType, Container>
 where
     Container: ContainerOf<'a, RootNodeType>,
@@ -119,9 +122,9 @@ where
     /// rather than specifying the return type as
     /// `Result<Node::LiveType<'a>>`.  This way, the usage of the
     /// output value can be used to deduce the return type.
-    pub fn borrow(&'a self) -> Result<F::Obj<Visiting<'a, Container>>, graph::Error> {
+    pub fn borrow(&'a self) -> Result<F::Obj<'a, Visiting<'a, Container>>, graph::Error> {
         let container: &Container = self.nodes.last().unwrap();
-        let node: &F::Obj<Storage> = container.from_container()?;
+        let node: &F::Obj<'a, Storage> = container.from_container()?;
         let converter = StorageToVisiting { view: &self.nodes };
         let live_ref = F::view_ref(node, &converter);
         Ok(live_ref)
@@ -130,7 +133,7 @@ where
 
 impl<
         'a,
-        Family: RecursiveFamily<'a>,
+        Family: RecursiveFamily,
         T: RecursiveObj<'a, Family = Family>,
         Container: ContainerOf<'a, T>,
     > VisitingRef<'a, T, Container>
@@ -140,7 +143,7 @@ impl<
     /// When visiting a recursive graph, recursive references are
     /// represented as `LiveGraphRef` instances.  Borrowing the
     /// reference constructs the live type for the referenced type.
-    pub fn borrow(&self) -> Result<Family::Obj<Visiting<'a, Container>>, graph::Error> {
+    pub fn borrow(&self) -> Result<Family::Obj<'a, Visiting<'a, Container>>, graph::Error> {
         let self_index = self
             .view
             .len()
@@ -155,7 +158,7 @@ impl<
             })?;
 
         let container: &Container = &self.view[index];
-        let node: &Family::Obj<Storage> = container.from_container()?;
+        let node: &Family::Obj<'a, Storage> = container.from_container()?;
         let converter = StorageToVisiting {
             view: &self.view[..=index],
         };

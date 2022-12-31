@@ -24,7 +24,7 @@ impl<'a> peano::Number<'a> {
 // // specific Storage/Live/DefaultSelector implementations, and multiple
 // // "where" clauses would be completely unreadable and unusable to a
 // // user.
-impl<'a, Container: ContainerOf<'a, peano::Number<'a>>> peano::Number<'a, Visiting<'a, Container>> {
+impl<'a, Container: ContainerOf<peano::Number<'a>>> peano::Number<'a, Visiting<'a, Container>> {
     fn value(&self) -> usize {
         match self {
             peano::Number::Zero => 0,

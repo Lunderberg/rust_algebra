@@ -40,7 +40,7 @@ impl<Container> BuilderObj<Container> {
         builder_obj: T,
     ) -> BuilderRef<F::Obj<'a, Storage>>
     where
-        Container: ContainerOf<'a, F::Obj<'a, Storage>>,
+        Container: ContainerOf<F::Obj<'a, Storage>>,
         F: RecursiveFamily<Obj<'a, Builder> = T>,
         Container: 'a,
     {

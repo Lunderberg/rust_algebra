@@ -413,10 +413,9 @@ fn generate_container_impl(info: &EnumInfo) -> impl Iterator<Item = syn::Item> +
             .unzip();
 
         let stream = quote! {
-            impl<#lifetime, RefType: ::graph::RecursiveRefType<#lifetime>>
+            impl<#lifetime>
                 ::graph::ContainerOf<
-                        #lifetime,
-                    super::generic_enum::#ref_ident<#lifetime, RefType>>
+                    super::generic_enum::#ref_ident<#lifetime, ::graph::Storage>>
                 for #ident<#lifetime> {
                     fn to_container(val: super::generic_enum::#ref_ident<#lifetime, ::graph::Storage>) -> Self {
                         Self::#ref_ident(val)

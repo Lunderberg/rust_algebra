@@ -59,6 +59,6 @@ pub trait RecursiveFamily {
 /// accepts an argument of type `F::Obj<Builder>` and must
 /// internally convert it to an object of type `F::Obj<Storage>`)
 pub trait RecursiveObj<'a>: 'a {
-    type Family: RecursiveFamily;
+    type Family: RecursiveFamily<Obj<'a, Self::RefType> = Self>;
     type RefType: RecursiveRefType<'a>;
 }

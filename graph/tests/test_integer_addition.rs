@@ -23,7 +23,7 @@ mod expr {
 //     }
 // }
 
-impl<'a, Container: ContainerOf<'a, expr::IntExpr<'a>>> expr::IntExpr<'a, Visiting<'a, Container>> {
+impl<'a, Container: ContainerOf<expr::IntExpr<'a>>> expr::IntExpr<'a, Visiting<'a, Container>> {
     fn eval(&self) -> i64 {
         match self {
             Self::Int(val) => **val,

@@ -79,11 +79,9 @@ impl<'a, Container> RecursiveRefType<'a> for Visiting<'a, Container> {
 /// - `trait_alias`: https://github.com/rust-lang/rust/issues/41517
 /// - `implied_bounds`: https://github.com/rust-lang/rust/issues/44491
 /// - `provide_any`: https://github.com/rust-lang/rust/issues/96024
-pub trait ContainerOf<'a, R: RecursiveObj<'a>>: 'a {
-    fn to_container(val: <R::Family as RecursiveFamily>::Obj<'a, Storage>) -> Self;
-    fn from_container(
-        &'a self,
-    ) -> Result<&'a <R::Family as RecursiveFamily>::Obj<'a, Storage>, graph::Error>;
+pub trait ContainerOf<T> {
+    fn to_container(val: T) -> Self;
+    fn from_container(&self) -> Result<&T, graph::Error>;
 }
 
 /// Inverse of `ContainerOf`, marks a node type as being stored
@@ -98,7 +96,7 @@ impl<
         'a,
         F: RecursiveFamily,
         T: RecursiveObj<'a, Family = F, RefType = Storage>,
-        Container: ContainerOf<'a, T>,
+        Container: ContainerOf<T>,
     > ContainedBy<'a, Container> for T
 where
     F: RecursiveFamily<Obj<'a, Storage> = T>,
@@ -113,12 +111,9 @@ where
 
 impl<
         'a,
-        F: RecursiveFamily,
-        RootNodeType: RecursiveObj<'a, RefType = Storage, Family = F>,
-        Container,
+        RootNodeType: RecursiveObj<'a, RefType = Storage>,
+        Container: ContainerOf<RootNodeType>,
     > TypedTree<'a, RootNodeType, Container>
-where
-    Container: ContainerOf<'a, RootNodeType>,
 {
     /// Borrow the top-level node, starting a recursive visit of the graph.
     ///
@@ -126,28 +121,32 @@ where
     /// rather than specifying the return type as
     /// `Result<Node::LiveType<'a>>`.  This way, the usage of the
     /// output value can be used to deduce the return type.
-    pub fn borrow(&'a self) -> Result<F::Obj<'a, Visiting<'a, Container>>, graph::Error> {
+    pub fn borrow<'b: 'a>(
+        &'b self,
+    ) -> Result<
+        <RootNodeType::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>,
+        graph::Error,
+    > {
         let container: &Container = self.nodes.last().unwrap();
-        let node: &F::Obj<'a, Storage> = container.from_container()?;
+        let node: &RootNodeType = container.from_container()?;
         let converter = StorageToVisiting { view: &self.nodes };
-        let live_ref = F::storage_to_visiting(node, converter);
+        let live_ref = RootNodeType::Family::storage_to_visiting(node, converter);
         Ok(live_ref)
     }
 }
 
-impl<
-        'a,
-        Family: RecursiveFamily,
-        T: RecursiveObj<'a, Family = Family>,
-        Container: ContainerOf<'a, T>,
-    > VisitingRef<'a, T, Container>
+impl<'a, T: RecursiveObj<'a, RefType = Storage>, Container: ContainerOf<T>>
+    VisitingRef<'a, T, Container>
 {
     /// Recurse down a level of the graph
     ///
     /// When visiting a recursive graph, recursive references are
     /// represented as `LiveGraphRef` instances.  Borrowing the
     /// reference constructs the live type for the referenced type.
-    pub fn borrow(&self) -> Result<Family::Obj<'a, Visiting<'a, Container>>, graph::Error> {
+    pub fn borrow(
+        &self,
+    ) -> Result<<T::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>, graph::Error>
+    {
         let self_index = self
             .view
             .len()
@@ -162,11 +161,11 @@ impl<
             })?;
 
         let container: &Container = &self.view[index];
-        let node: &Family::Obj<'a, Storage> = container.from_container()?;
+        let node: &T = container.from_container()?;
         let converter = StorageToVisiting {
             view: &self.view[..=index],
         };
-        let live_ref = Family::storage_to_visiting(node, converter);
+        let live_ref = T::Family::storage_to_visiting(node, converter);
         Ok(live_ref)
     }
 }

@@ -6,18 +6,14 @@ use crate::{
 };
 
 /// A constructor used to generate a `TypedTree<Container>`.
-pub struct Builder<'a, Container: 'a> {
+pub struct Builder<Container> {
     pub(crate) nodes: Vec<Container>,
-    pub(crate) _a: PhantomData<&'a usize>,
 }
 
-impl<'a, Container> Builder<'a, Container> {
+impl<Container> Builder<Container> {
     /// Constructs an empty `Builder`.
     pub fn new() -> Self {
-        Self {
-            nodes: Vec::new(),
-            _a: PhantomData,
-        }
+        Self { nodes: Vec::new() }
     }
 }
 
@@ -30,23 +26,25 @@ pub struct BuilderRef<T: ?Sized> {
     _node: PhantomData<*const T>,
 }
 
-impl<'a, Container> RecursiveRefType<'a> for Builder<'a, Container> {
+impl<'a, Container: 'a> RecursiveRefType<'a> for Builder<Container> {
     type Ref<T: ?Sized> = BuilderRef<T>;
     type Value<T: 'a> = T;
 }
 
-impl<'a, Container> Builder<'a, Container> {
+impl<Container> Builder<Container> {
     /// Insert a new node to the builder
     pub fn push<
+        'a,
         F: RecursiveFamily,
-        T: RecursiveObj<'a, RefType = Builder<'a, Container>, Family = F>,
+        T: RecursiveObj<'a, RefType = Builder<Container>, Family = F>,
     >(
         &mut self,
         builder_obj: T,
     ) -> BuilderRef<F::Obj<'a, NilRefType>>
     where
         F::Obj<'a, Storage>: ContainedBy<'a, Container>,
-        F: RecursiveFamily<Obj<'a, Builder<'a, Container>> = T>,
+        F: RecursiveFamily<Obj<'a, Builder<Container>> = T>,
+        Container: 'a,
     {
         let abs_pos = self.nodes.len();
         let converter = BuilderToStorage { size: abs_pos };
@@ -60,7 +58,7 @@ impl<'a, Container> Builder<'a, Container> {
     }
 }
 
-impl<'a, RootNodeType: RecursiveObj<'a>, Container> From<Builder<'a, Container>>
+impl<'a, RootNodeType: RecursiveObj<'a>, Container> From<Builder<Container>>
     for TypedTree<'a, RootNodeType, Container>
 {
     fn from(builder: Builder<Container>) -> Self {

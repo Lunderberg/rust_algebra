@@ -10,7 +10,7 @@ pub struct BuilderToStorage {
     pub(crate) size: usize,
 }
 
-impl<'a, Container: 'a> RefTypeMover<'a, Builder<Container>, Storage> for BuilderToStorage {
+impl<'a> RefTypeMover<'a, Builder, Storage> for BuilderToStorage {
     fn move_reference<T>(&self, old_ref: BuilderRef<T>) -> StorageRef<T> {
         let rel_pos = self
             .size

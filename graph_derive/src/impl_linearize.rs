@@ -200,7 +200,7 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
                 .expect("Error parsing re-written recursive type for generic enum")
             } else if self.info.is_recursive_type(&ty) {
                 syn::parse2(quote! {
-                    Ref::Ref<#ty<#lifetime, ::graph::NilRefType>>
+                    Ref::Ref<#ty<#lifetime, ::graph::Storage>>
                 })
                 .expect("Error parsing re-written recursive type for generic enum")
             } else {
@@ -219,7 +219,7 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
 
     item_enum.generics = syn::parse2(quote! {
         <#lifetime
-         , Ref: ::graph::RecursiveRefType<#lifetime> = ::graph::NilRefType
+         , Ref: ::graph::RecursiveRefType<#lifetime> = ::graph::Storage
          #( , #generic_params )*
          >
     })

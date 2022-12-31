@@ -78,17 +78,3 @@ pub trait RefTypeMover<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefTyp
     fn move_reference<T>(&self, old_ref: OldRef::Ref<T>) -> NewRef::Ref<T>;
     fn move_value<T>(&self, value: OldRef::Value<T>) -> NewRef::Value<T>;
 }
-
-/// Utility reference type, used to avoid infinite recursion at
-/// compile-time.  This makes the types in the converter easier,
-/// because both old and new types share the same internal
-/// structures.  Converting `OldRef::Ref<Enum<NilRefType>>` to
-/// `NewRef::Ref<Enum<NilRefType>>` only requires changing the
-/// outer type, whereas converting `OldRef::Ref<Enum<OldRef>>` to
-/// `NewRef::Ref<Enum<NewRef>>` would also require converting the
-/// inner reference.
-pub struct NilRefType;
-impl<'a> RecursiveRefType<'a> for NilRefType {
-    type Ref<T: ?Sized> = ();
-    type Value<T: 'a> = ();
-}

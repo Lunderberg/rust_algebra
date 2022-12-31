@@ -255,6 +255,94 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
     })
     .expect("Error parsing generated family struct");
 
+    let builder_to_storage_arms: Vec<_> = info
+        .item_enum
+        .variants
+        .iter()
+        .map(|variant: &syn::Variant| -> syn::Arm {
+            let arm_ident = &variant.ident;
+            match &variant.fields {
+                syn::Fields::Named(_) => todo!("Named enum fields"),
+
+                syn::Fields::Unnamed(fields) => {
+                    let (lhs_names, rhs_exprs): (Vec<_>, Vec<syn::Expr>) = fields
+                        .unnamed
+                        .iter()
+                        .enumerate()
+                        .map(|(i, field)| {
+                            let field_ident = format_ident!("field_{i}");
+                            let stream = if info.is_recursive_type(&field.ty) {
+                                quote! { converter.move_reference( #field_ident ) }
+                            } else {
+                                quote! { #field_ident }
+                            };
+                            let rhs_expr = syn::parse2(stream)
+                                .expect("Error parsing generated builder_to_storage field");
+
+                            (field_ident, rhs_expr)
+                        })
+                        .unzip();
+
+                    let stream = quote! {
+                        super::generic_enum::#ident::#arm_ident(#(#lhs_names),*) =>
+                            super::generic_enum::#ident::#arm_ident(#(#rhs_exprs),*),
+                    };
+
+                    syn::parse2(stream).expect("Error parsing builder_to_storage match arm")
+                }
+
+                syn::Fields::Unit => syn::parse2(quote! {
+                super::generic_enum::#ident::#arm_ident => super::generic_enum::#ident::#arm_ident,
+                })
+                .expect("Error parsing generated arm for builder_to_storage"),
+            }
+        })
+        .collect();
+
+    let storage_to_visiting_arms: Vec<_> = info
+        .item_enum
+        .variants
+        .iter()
+        .map(|variant: &syn::Variant| -> syn::Arm {
+            let arm_ident = &variant.ident;
+            match &variant.fields {
+                syn::Fields::Named(_) => todo!("Named enum fields"),
+
+                syn::Fields::Unnamed(fields) => {
+                    let (lhs_names, rhs_exprs): (Vec<_>, Vec<syn::Expr>) = fields
+                        .unnamed
+                        .iter()
+                        .enumerate()
+                        .map(|(i, field)| {
+                            let field_ident = format_ident!("field_{i}");
+                            let stream = if info.is_recursive_type(&field.ty) {
+                                quote! { converter.view_reference( #field_ident ) }
+                            } else {
+                                quote! { #field_ident }
+                            };
+                            let rhs_expr = syn::parse2(stream)
+                                .expect("Error parsing generated storage_to_visiting field");
+
+                            (field_ident, rhs_expr)
+                        })
+                        .unzip();
+
+                    let stream = quote! {
+                        super::generic_enum::#ident::#arm_ident(#(#lhs_names),*) =>
+                            super::generic_enum::#ident::#arm_ident(#(#rhs_exprs),*),
+                    };
+
+                    syn::parse2(stream).expect("Error parsing storage_to_visiting match arm")
+                }
+
+                syn::Fields::Unit => syn::parse2(quote! {
+                super::generic_enum::#ident::#arm_ident => super::generic_enum::#ident::#arm_ident,
+                })
+                .expect("Error parsing generated arm for storage_to_visiting"),
+            }
+        })
+        .collect();
+
     let (view_arms, move_arms): (Vec<syn::Arm>, Vec<syn::Arm>) = info
         .item_enum
         .variants
@@ -272,21 +360,22 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
                             .enumerate()
                             .map(|(i, field)| {
                                 let field_ident = format_ident!("field_{i}");
-                                let (view_stream, move_stream) =
-                                    if info.is_recursive_type(&field.ty) {
-                                        (
-                                            quote! { converter.view_reference( #field_ident ) },
-                                            quote! { converter.move_reference( #field_ident ) },
-                                        )
+                                let is_recursive = info.is_recursive_type(&field.ty);
+
+                                let view_expr = syn::parse2(
+                                    if is_recursive {
+                                        quote! { converter.view_reference( #field_ident ) }
                                     } else {
-                                        (
-                                            quote! { converter.view_value( #field_ident ) },
-                                            quote! { converter.move_value( #field_ident ) },
-                                        )
-                                    };
-                                let view_expr = syn::parse2(view_stream)
+                                        quote! { converter.view_value( #field_ident ) }
+                                    })
                                     .expect("Error parsing generated view converter field");
-                                let move_expr = syn::parse2(move_stream)
+
+                                let move_expr = syn::parse2(
+                                    if is_recursive {
+                                        quote! { converter.move_reference( #field_ident ) }
+                                    } else{
+                                        quote! { converter.move_value( #field_ident ) }
+                                    })
                                     .expect("Error parsing generated move converter field");
 
                                 (field_ident, view_expr, move_expr)
@@ -303,7 +392,7 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
                         super::generic_enum::#ident::#arm_ident(#(#lhs_names),*) =>
                             super::generic_enum::#ident::#arm_ident(#(#rhs_move),*),
                     })
-                    .expect("Error parsing generated arm for move_ref()");
+                        .expect("Error parsing generated arm for move_ref()");
 
                     (view_arm, move_arm)
                 }
@@ -317,7 +406,7 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
                 }
             }
         })
-        .unzip();
+        .multiunzip();
 
     let struct_impl = syn::parse2(quote! {
         impl ::graph::RecursiveFamily for #ident {
@@ -327,6 +416,23 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
             type DefaultContainer<#lifetime>
                 = super::container::#ident<#lifetime>;
 
+            fn builder_to_storage<#lifetime>(
+                builder_obj: Self::Obj<#lifetime, ::graph::Builder>,
+                converter: ::graph::BuilderToStorage,
+            ) -> Self::Obj<#lifetime, ::graph::Storage> {
+                match builder_obj {
+                    #( #builder_to_storage_arms )*
+                }
+            }
+
+            fn storage_to_visiting<#lifetime, Container>(
+                storage_obj: & #lifetime Self::Obj<#lifetime, ::graph::Storage>,
+                converter: ::graph::StorageToVisiting<#lifetime, Container>,
+            ) -> Self::Obj<#lifetime, ::graph::Visiting<#lifetime, Container>> {
+                match storage_obj {
+                    #( #storage_to_visiting_arms )*
+                }
+            }
 
             fn view_ref<#lifetime,
                         OldRef: ::graph::RecursiveRefType<#lifetime>,

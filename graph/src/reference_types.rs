@@ -1,3 +1,5 @@
+use crate::{Builder, BuilderToStorage, Storage, StorageToVisiting, Visiting};
+
 /// Abstract across a type of references
 ///
 /// Allows the same generic enum definition to be used both as a value
@@ -37,6 +39,16 @@ pub trait RecursiveFamily {
     type Obj<'a, R: RecursiveRefType<'a>>: RecursiveObj<'a, RefType = R, Family = Self> + 'a;
 
     type DefaultContainer<'a>: 'a;
+
+    fn builder_to_storage<'a>(
+        builder_obj: Self::Obj<'a, Builder>,
+        converter: BuilderToStorage,
+    ) -> Self::Obj<'a, Storage>;
+
+    fn storage_to_visiting<'a, Container>(
+        storage_obj: &'a Self::Obj<'a, Storage>,
+        converter: StorageToVisiting<'a, Container>,
+    ) -> Self::Obj<'a, Visiting<'a, Container>>;
 
     fn view_ref<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
         old_obj: &'a Self::Obj<'a, OldRef>,

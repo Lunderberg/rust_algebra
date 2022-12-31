@@ -8,7 +8,7 @@ use crate::{RecursiveFamily, RecursiveObj, RecursiveRefType, StorageToVisiting};
 /// `ContainerOf<Node>` for each type that may be contained.
 pub struct TypedTree<
     'a,
-    RootNodeType: RecursiveObj<'a>,
+    RootNodeType: RecursiveObj<'a, RefType = Storage>,
     Container = <<RootNodeType as RecursiveObj<'a>>::Family as RecursiveFamily>::DefaultContainer<
         'a,
     >,
@@ -111,8 +111,12 @@ where
     }
 }
 
-impl<'a, F: RecursiveFamily, RootNodeType: RecursiveObj<'a, Family = F>, Container>
-    TypedTree<'a, RootNodeType, Container>
+impl<
+        'a,
+        F: RecursiveFamily,
+        RootNodeType: RecursiveObj<'a, RefType = Storage, Family = F>,
+        Container,
+    > TypedTree<'a, RootNodeType, Container>
 where
     Container: ContainerOf<'a, RootNodeType>,
 {

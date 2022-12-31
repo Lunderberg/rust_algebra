@@ -56,7 +56,7 @@ impl<Container> BuilderObj<Container> {
     }
 }
 
-impl<'a, RootNodeType: RecursiveObj<'a>, Container> From<BuilderObj<Container>>
+impl<'a, RootNodeType: RecursiveObj<'a, RefType = Storage>, Container> From<BuilderObj<Container>>
     for TypedTree<'a, RootNodeType, Container>
 {
     fn from(builder: BuilderObj<Container>) -> Self {

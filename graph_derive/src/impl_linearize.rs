@@ -343,71 +343,6 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
         })
         .collect();
 
-    let (view_arms, move_arms): (Vec<syn::Arm>, Vec<syn::Arm>) = info
-        .item_enum
-        .variants
-        .iter()
-        .map(|variant: &syn::Variant| -> (syn::Arm, syn::Arm) {
-            let arm_ident = &variant.ident;
-            match &variant.fields {
-                syn::Fields::Named(_) => todo!("Named enum fields"),
-
-                syn::Fields::Unnamed(fields) => {
-                    let (lhs_names, rhs_view, rhs_move): (Vec<_>, Vec<syn::Expr>, Vec<syn::Expr>) =
-                        fields
-                            .unnamed
-                            .iter()
-                            .enumerate()
-                            .map(|(i, field)| {
-                                let field_ident = format_ident!("field_{i}");
-                                let is_recursive = info.is_recursive_type(&field.ty);
-
-                                let view_expr = syn::parse2(
-                                    if is_recursive {
-                                        quote! { converter.view_reference( #field_ident ) }
-                                    } else {
-                                        quote! { converter.view_value( #field_ident ) }
-                                    })
-                                    .expect("Error parsing generated view converter field");
-
-                                let move_expr = syn::parse2(
-                                    if is_recursive {
-                                        quote! { converter.move_reference( #field_ident ) }
-                                    } else{
-                                        quote! { converter.move_value( #field_ident ) }
-                                    })
-                                    .expect("Error parsing generated move converter field");
-
-                                (field_ident, view_expr, move_expr)
-                            })
-                            .multiunzip();
-
-                    let view_arm = syn::parse2(quote! {
-                        super::generic_enum::#ident::#arm_ident(#(#lhs_names),*) =>
-                            super::generic_enum::#ident::#arm_ident(#(#rhs_view),*),
-                    })
-                    .expect("Error parsing generated arm for view_ref()");
-
-                    let move_arm = syn::parse2(quote! {
-                        super::generic_enum::#ident::#arm_ident(#(#lhs_names),*) =>
-                            super::generic_enum::#ident::#arm_ident(#(#rhs_move),*),
-                    })
-                        .expect("Error parsing generated arm for move_ref()");
-
-                    (view_arm, move_arm)
-                }
-
-                syn::Fields::Unit => {
-                    let arm: syn::Arm = syn::parse2(quote! {
-                    super::generic_enum::#ident::#arm_ident => super::generic_enum::#ident::#arm_ident,
-                    })
-                    .expect("Error parsing generated arm for view_ref()");
-                    (arm.clone(), arm)
-                }
-            }
-        })
-        .multiunzip();
-
     let struct_impl = syn::parse2(quote! {
         impl ::graph::RecursiveFamily for #ident {
             type Obj<#lifetime, Ref: ::graph::RecursiveRefType<#lifetime>>
@@ -431,30 +366,6 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
             ) -> Self::Obj<#lifetime, ::graph::Visiting<#lifetime, Container>> {
                 match storage_obj {
                     #( #storage_to_visiting_arms )*
-                }
-            }
-
-            fn view_ref<#lifetime,
-                        OldRef: ::graph::RecursiveRefType<#lifetime>,
-                        NewRef: ::graph::RecursiveRefType<#lifetime> > (
-                old_obj: &'view Self::Obj<#lifetime, OldRef>,
-                converter: &impl ::graph::RefTypeViewer<
-                        #lifetime, OldRef, NewRef>,
-            ) -> Self::Obj<#lifetime, NewRef> {
-                match old_obj {
-                     #( #view_arms )*
-                }
-            }
-
-            fn move_ref<#lifetime,
-                        OldRef: ::graph::RecursiveRefType<#lifetime>,
-                        NewRef: ::graph::RecursiveRefType<#lifetime>> (
-                old_obj: Self::Obj<#lifetime, OldRef>,
-                converter: &impl ::graph::RefTypeMover<
-                        #lifetime, OldRef, NewRef>,
-            ) -> Self::Obj<#lifetime, NewRef> {
-                match old_obj {
-                    #( #move_arms )*
                 }
             }
         }

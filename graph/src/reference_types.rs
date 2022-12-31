@@ -49,16 +49,6 @@ pub trait RecursiveFamily {
         storage_obj: &'a Self::Obj<'a, Storage>,
         converter: StorageToVisiting<'a, Container>,
     ) -> Self::Obj<'a, Visiting<'a, Container>>;
-
-    fn view_ref<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
-        old_obj: &'a Self::Obj<'a, OldRef>,
-        viewer: &impl RefTypeViewer<'a, OldRef, NewRef>,
-    ) -> Self::Obj<'a, NewRef>;
-
-    fn move_ref<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>(
-        old_obj: Self::Obj<'a, OldRef>,
-        viewer: &impl RefTypeMover<'a, OldRef, NewRef>,
-    ) -> Self::Obj<'a, NewRef>;
 }
 
 /// A recursive object, belonging to a specific family of

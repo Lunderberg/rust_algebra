@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::{
-    BuilderToStorage, ContainedBy, RecursiveFamily, RecursiveObj, RecursiveRefType, Storage,
-    TypedTree,
+    BuilderToStorage, ContainedBy, ContainerOf, RecursiveFamily, RecursiveObj, RecursiveRefType,
+    Storage, TypedTree,
 };
 
 pub struct Builder;
@@ -40,7 +40,7 @@ impl<Container> BuilderObj<Container> {
         builder_obj: T,
     ) -> BuilderRef<F::Obj<'a, Storage>>
     where
-        F::Obj<'a, Storage>: ContainedBy<'a, Container>,
+        Container: ContainerOf<'a, F::Obj<'a, Storage>>,
         F: RecursiveFamily<Obj<'a, Builder> = T>,
         Container: 'a,
     {

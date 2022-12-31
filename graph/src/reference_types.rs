@@ -62,19 +62,3 @@ pub trait RecursiveObj<'a>: 'a {
     type Family: RecursiveFamily;
     type RefType: RecursiveRefType<'a>;
 }
-
-/// Convert between references of different usage types
-/// (e.g. build a Visitor enum from a Storage enum)
-pub trait RefTypeViewer<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>:
-    'a
-{
-    fn view_reference<T>(&self, old_ref: &OldRef::Ref<T>) -> NewRef::Ref<T>;
-    fn view_value<T>(&self, value: &'a OldRef::Value<T>) -> NewRef::Value<T>;
-}
-
-/// Convert between references of different usage types
-/// (e.g. build a Storage enum from a Builder enum)
-pub trait RefTypeMover<'a, OldRef: RecursiveRefType<'a>, NewRef: RecursiveRefType<'a>>: 'a {
-    fn move_reference<T>(&self, old_ref: OldRef::Ref<T>) -> NewRef::Ref<T>;
-    fn move_value<T>(&self, value: OldRef::Value<T>) -> NewRef::Value<T>;
-}

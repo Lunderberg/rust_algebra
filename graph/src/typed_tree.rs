@@ -126,7 +126,7 @@ where
         let container: &Container = self.nodes.last().unwrap();
         let node: &F::Obj<'a, Storage> = container.from_container()?;
         let converter = StorageToVisiting { view: &self.nodes };
-        let live_ref = F::view_ref(node, &converter);
+        let live_ref = F::storage_to_visiting(node, converter);
         Ok(live_ref)
     }
 }
@@ -162,7 +162,7 @@ impl<
         let converter = StorageToVisiting {
             view: &self.view[..=index],
         };
-        let live_ref = Family::view_ref(node, &converter);
+        let live_ref = Family::storage_to_visiting(node, converter);
         Ok(live_ref)
     }
 }

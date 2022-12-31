@@ -46,7 +46,7 @@ impl<Container> BuilderObj<Container> {
     {
         let abs_pos = self.nodes.len();
         let converter = BuilderToStorage { size: abs_pos };
-        let storage_obj: F::Obj<'a, Storage> = F::move_ref(builder_obj, &converter);
+        let storage_obj: F::Obj<'a, Storage> = F::builder_to_storage(builder_obj, converter);
         let container: Container = storage_obj.to_container();
         self.nodes.push(container);
         BuilderRef {

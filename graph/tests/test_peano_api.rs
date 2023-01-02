@@ -80,15 +80,10 @@ mod graph2 {
     ////////////// TypedTree //////////////
     ///////////////////////////////////////
 
-    pub trait Visitable<'a> {
-        type Family: RecursiveFamily;
-        type Container: ContainerOf<<Self::Family as RecursiveFamily>::Obj<'a, Storage>>;
-        fn borrow<'b: 'a>(
-            &'b self,
-        ) -> Result<
-            <Self::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Self::Container>>,
-            graph::Error,
-        >;
+    pub trait Visitable<'a, 'b> {
+        type RetType;
+
+        fn borrow(&'b self) -> Result<Self::RetType, graph::Error>;
     }
 
     /// A container for an entire tree structure.  The container must
@@ -136,23 +131,18 @@ mod graph2 {
 
     impl<
             'a,
+            'b: 'a,
             RootNodeType: RecursiveObj<'a, RefType = Storage>,
-            Container: ContainerOf<RootNodeType>,
-        > Visitable<'a> for TypedTree<'a, RootNodeType, Container>
+            Container: ContainerOf<RootNodeType> + 'a,
+        > Visitable<'a, 'b> for TypedTree<'a, RootNodeType, Container>
     {
-        type Family = RootNodeType::Family;
-        type Container = Container;
+        type RetType = <RootNodeType::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>;
 
-        fn borrow<'b: 'a>(
-            &'b self,
-        ) -> Result<
-            <Self::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Self::Container>>,
-            graph::Error,
-        > {
+        fn borrow(&'b self) -> Result<Self::RetType, graph::Error> {
             let container: &Container = self.nodes.last().unwrap();
             let node: &RootNodeType = container.from_container()?;
             let converter = StorageToVisiting { view: &self.nodes };
-            let live_ref = Self::Family::storage_to_visiting(node, converter);
+            let live_ref = RootNodeType::Family::storage_to_visiting(node, converter);
             Ok(live_ref)
         }
     }
@@ -233,7 +223,7 @@ mod graph2 {
         _c: PhantomData<*const Container>,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Copy)]
     pub struct VisitingRef<'a, T: ?Sized, Container: 'a> {
         rel_pos: usize,
         view: &'a [Container],
@@ -247,12 +237,15 @@ mod graph2 {
 
     impl<
             'a,
+            'b,
             Family: RecursiveFamily,
             T: RecursiveObj<'a, Family = Family, RefType = Storage>,
-            Container: ContainerOf<Family::Obj<'a, Storage>>,
-        > VisitingRef<'a, T, Container>
+            Container: ContainerOf<Family::Obj<'a, Storage>> + 'a,
+        > Visitable<'a, 'b> for VisitingRef<'a, T, Container>
     {
-        pub fn borrow(&self) -> Result<Family::Obj<'a, Visiting<'a, Container>>, graph::Error> {
+        type RetType = Family::Obj<'a, Visiting<'a, Container>>;
+
+        fn borrow(&'b self) -> Result<Self::RetType, graph::Error> {
             let self_index = self
                 .view
                 .len()

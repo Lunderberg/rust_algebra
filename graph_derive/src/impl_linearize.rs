@@ -445,6 +445,20 @@ fn generate_container_impl(info: &EnumInfo) -> impl Iterator<Item = syn::Item> +
     })
 }
 
+fn generate_default_container_impl(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + '_ {
+    let lifetime = &info.view_lifetime;
+    let ident = &info.item_enum.ident;
+
+    let stream = quote! {
+        impl<#lifetime> ::graph::HasDefaultContainer
+            for #ident<#lifetime, ::graph::Storage> {
+            type DefaultContainer = super::container::#ident<#lifetime>;
+        }
+    };
+
+    std::iter::once(syn::parse2(stream).expect("Error parsing generated HasDefaultContainer impl"))
+}
+
 fn apply_generator<'a, G, I>(
     enums: &'a Vec<EnumInfo>,
     dest_module: Option<&'a str>,
@@ -493,6 +507,11 @@ pub fn linearize_recursive_enums(
             &enums,
             Some("generic_enum"),
             generate_recursive_obj_impl,
+        ))
+        .chain(apply_generator(
+            &enums,
+            Some("generic_enum"),
+            generate_default_container_impl,
         ))
         .chain(apply_generator(
             &enums,

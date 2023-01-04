@@ -10,7 +10,7 @@ mod peano {
 }
 
 impl<'a> peano::Number<'a> {
-    fn new(val: u8) -> TypedTree<Self, peano::container::Number<'a>> {
+    fn new(val: u8) -> TypedTree<Self> {
         let mut builder = Builder::new();
         let mut a = builder.push(peano::Number::Zero);
         for _ in 0..val {
@@ -38,7 +38,7 @@ impl<'a, Container: ContainerOf<peano::Number<'a>>> peano::Number<'a, Visiting<'
 
 #[test]
 fn construct() {
-    let _three: TypedTree<peano::Number, peano::container::Number<'_>> = {
+    let _three: TypedTree<peano::Number> = {
         let mut builder = Builder::new();
         let mut a = builder.push(peano::Number::Zero);
         for _ in 0..3 {

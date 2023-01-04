@@ -23,7 +23,7 @@ impl<'a, Container: ContainerOf<expr::IntExpr<'a>>> expr::IntExpr<'a, Visiting<'
 #[test]
 fn eval() {
     use expr::IntExpr;
-    let expression: TypedTree<IntExpr, expr::container::IntExpr<'_>> = {
+    let expression: TypedTree<IntExpr> = {
         let mut builder = Builder::new();
         let a = builder.push(IntExpr::Int(5));
         let b = builder.push(IntExpr::Int(10));

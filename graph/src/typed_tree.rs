@@ -6,7 +6,10 @@ use crate::{RecursiveFamily, RecursiveObj, Storage, Visiting, VisitingRef};
 /// be able to represent any individual node type that may occur
 /// within the tree.  These should be expected by implementing
 /// `ContainerOf<Node>` for each type that may be contained.
-pub struct TypedTree<RootNodeType, Container> {
+pub struct TypedTree<
+    RootNodeType: HasDefaultContainer,
+    Container = <RootNodeType as HasDefaultContainer>::DefaultContainer,
+> {
     pub(crate) nodes: Vec<Container>,
     pub(crate) _phantom: PhantomData<*const RootNodeType>,
 }
@@ -35,6 +38,47 @@ pub trait ContainedBy<'a, Container>: 'a {
     fn from_container(container: &'a Container) -> Result<&'a Self, graph::Error>;
 }
 
+/// Utility trait for providing a default container.
+///
+/// Most of the time, a tree should be contained in the enum that
+/// was generated to contain it, or any recursively referenced
+/// type contained by it.  However, in some cases it may be
+/// desirable to use a broader container type.  For example,
+/// consider the following structure.
+///
+/// ```
+/// #[recursive_graph]
+/// mod my_graph {
+///     enum BoolExpr {
+///         And(BoolExpr, BoolExpr),
+///         Equal(IntExpr, IntExpr),
+///     }
+///
+///     enum IntExpr {
+///         Int(i64),
+///         Add(IntExpr, IntExpr),
+///     }
+/// }
+/// ```
+///
+/// An `IntExpr` can only refer to itself, while a `BoolExpr` may
+/// refer either to itself or to an `IntExpr`.  The auto-generated
+/// type `my_graph::container::IntExpr` and
+/// `my_graph::container::BoolExpr` may be used for their
+/// respective types.  However, an `IntExpr` stored inside a
+/// `Vec<container::IntExpr>` would need to be converted into a
+/// `Vec<container::BoolExpr>` prior to use in a `BoolExpr`.  The
+/// user may want to use the `IntExpr` inside a
+/// `Vec<container::BoolExpr>` from the start, such that no
+/// conversion is required.
+///
+/// Since this isn't the typical case, this trait is implemented
+/// for all recursive types, allowing a default container to be
+/// chosen for each recursive type.
+pub trait HasDefaultContainer: Sized {
+    type DefaultContainer: ContainerOf<Self>;
+}
+
 impl<
         'a,
         F: RecursiveFamily,
@@ -52,7 +96,7 @@ where
     }
 }
 
-impl<RootNodeType, Container> TypedTree<RootNodeType, Container> {
+impl<RootNodeType: HasDefaultContainer, Container> TypedTree<RootNodeType, Container> {
     /// Borrow the top-level node, starting a recursive visit of the graph.
     pub fn root(&self) -> VisitingRef<RootNodeType, Container> {
         VisitingRef {

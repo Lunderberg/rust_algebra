@@ -92,10 +92,9 @@ mod graph2 {
     /// be able to represent any individual node type that may occur
     /// within the tree.  These should be expected by implementing
     /// `ContainerOf<Node>` for each type that may be contained.
-    pub struct TypedTree<'a, RootNodeType: RecursiveObj<'a, RefType = Storage>, Container> {
+    pub struct TypedTree<RootNodeType, Container> {
         nodes: Vec<Container>,
         _phantom: PhantomData<*const RootNodeType>,
-        _a: PhantomData<&'a usize>,
     }
 
     /// Exposes a type `T` as being potentially stored in a container
@@ -131,10 +130,8 @@ mod graph2 {
         }
     }
 
-    impl<'a, RootNodeType: RecursiveObj<'a, RefType = Storage>, Container>
-        TypedTree<'a, RootNodeType, Container>
-    {
-        pub fn root(&'a self) -> VisitingRef<'a, RootNodeType, Container> {
+    impl<RootNodeType, Container> TypedTree<RootNodeType, Container> {
+        pub fn root(&self) -> VisitingRef<RootNodeType, Container> {
             VisitingRef {
                 rel_pos: 0,
                 view: &self.nodes,
@@ -198,14 +195,11 @@ mod graph2 {
         }
     }
 
-    impl<'a, RootNodeType: RecursiveObj<'a, RefType = Storage>, Container>
-        From<BuilderObj<Container>> for TypedTree<'a, RootNodeType, Container>
-    {
+    impl<RootNodeType, Container> From<BuilderObj<Container>> for TypedTree<RootNodeType, Container> {
         fn from(builder: BuilderObj<Container>) -> Self {
             Self {
                 nodes: builder.nodes,
                 _phantom: PhantomData,
-                _a: PhantomData,
             }
         }
     }
@@ -214,12 +208,12 @@ mod graph2 {
     //////////////   Visiting   //////////////
     //////////////////////////////////////////
 
-    pub struct Visiting<'a, Container: 'a> {
+    pub struct Visiting<'a, Container> {
         _a: PhantomData<&'a [Container]>,
     }
 
     #[derive(Clone, Copy)]
-    pub struct VisitingRef<'a, T: ?Sized, Container: 'a> {
+    pub struct VisitingRef<'a, T: ?Sized, Container> {
         rel_pos: usize,
         view: &'a [Container],
         _phantom: PhantomData<*const T>,
@@ -374,7 +368,7 @@ pub mod peano {
 }
 
 impl<'a, Container: graph2::ContainerOf<peano::Number<'a>> + 'a>
-    graph2::TypedTree<'a, peano::Number<'a>, Container>
+    graph2::TypedTree<peano::Number<'a>, Container>
 {
     fn new(val: u8) -> Self {
         let mut builder = graph2::Builder::new();

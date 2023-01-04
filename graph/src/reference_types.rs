@@ -1,64 +1,100 @@
-use crate::{Builder, BuilderToStorage, Storage, StorageToVisiting, Visiting};
+use std::marker::PhantomData;
 
-/// Abstract across a type of references
-///
-/// Allows the same generic enum definition to be used both as a value
-/// type using `GraphRef<T>` instances for recursive references and as
-/// a lifetimed type using `LiveGraphRef<'a, BaseType, T>` for
-/// recursive references.
-pub trait RecursiveRefType<'a>: 'a {
-    /// The representation to use for recursive references
-    ///
-    /// # Arguments
-    ///
-    /// `T` - The type to which the reference points
-    ///
-    /// # Returns
-    ///
-    /// The representation of a recursive reference to `T` for
-    /// this reference type.
-    type Ref<T: ?Sized>;
+use crate::RecursiveRefType;
 
-    /// The representation to use for all other types
-    ///
-    /// # Arguments
-    ///
-    /// `T` - The value type to represent
-    ///
-    /// # Returns
-    ///
-    /// The representation of a value type `T` for this usage.
-    /// (e.g. `T` for storage, `&T` for visiting)
-    type Value<T: 'a>;
+/// A usage annotation for objects that are being constructed.
+pub struct Builder;
+
+impl<'a> RecursiveRefType<'a> for Builder {
+    type Ref<T: ?Sized> = BuilderRef<T>;
+    type Value<T: 'a> = T;
 }
 
-/// Meta-object, at compile-time can generate an enum for a
-/// specific usage type.  At runtime, can convert between enums
-/// of different usage types.
-pub trait RecursiveFamily {
-    type Obj<'a, R: RecursiveRefType<'a>>: RecursiveObj<'a, RefType = R, Family = Self> + 'a;
-
-    type DefaultContainer<'a>: 'a;
-
-    fn builder_to_storage<'a>(
-        builder_obj: Self::Obj<'a, Builder>,
-        converter: BuilderToStorage,
-    ) -> Self::Obj<'a, Storage>;
-
-    fn storage_to_visiting<'a, Container>(
-        storage_obj: &'a Self::Obj<'a, Storage>,
-        converter: StorageToVisiting<'a, Container>,
-    ) -> Self::Obj<'a, Visiting<'a, Container>>;
+/// Reference type used while building a tree.  Any time the user
+/// pushes a node into the builder, they receive a reference.
+/// That reference may then be used to construct additional
+/// builder nodes.
+pub struct BuilderRef<T: ?Sized> {
+    pub(crate) abs_pos: usize,
+    pub(crate) _node: PhantomData<*const T>,
 }
 
-/// A recursive object, belonging to a specific family of
-/// recursive types, with a specific type in that family.  This
-/// trait is automatically implemented, and is used for functions
-/// that must derive their types from arguments, and return
-/// another type in the same family.  (e.g. `Builder::push`
-/// accepts an argument of type `F::Obj<Builder>` and must
-/// internally convert it to an object of type `F::Obj<Storage>`)
-pub trait RecursiveObj<'a>: 'a {
-    type Family: RecursiveFamily<Obj<'a, Self::RefType> = Self>;
-    type RefType: RecursiveRefType<'a>;
+/// A usage annotation for objects that may be stored in the
+/// linearized structure.
+pub struct Storage;
+
+impl<'a> RecursiveRefType<'a> for Storage {
+    type Ref<T: ?Sized> = StorageRef<T>;
+    type Value<T: 'a> = T;
+}
+
+/// A reference in the linearized structure.
+pub struct StorageRef<T: ?Sized> {
+    /// The location of the referred-to node, relative to the node
+    /// holding the reference, in the direction of the start of the
+    /// `TypedTree`.
+    ///
+    /// `rel_pos` is unsigned, in order to avoid needing
+    /// loop-detection when walking through a graph.  In the
+    /// linearized structure, the index of a referent is strictly less
+    /// than the index of the node holding the reference, making
+    /// reference loops unrepresentable.
+    pub(crate) rel_pos: usize,
+    pub(crate) _node: PhantomData<*const T>,
+}
+
+/// A usage annotation for objects that contain a view into the full
+/// tree structure that they represent.
+pub struct Visiting<'a, Container: 'a> {
+    _a: PhantomData<&'a usize>,
+    _c: PhantomData<*const Container>,
+}
+
+/// Relative backreference to earlier node.  Used to represent
+/// references into recursively-defined structures while traversing
+/// the graph.
+pub struct VisitingRef<'a, T: ?Sized, Container: 'a> {
+    /// The reference to be followed, relative to the last element in
+    /// `view`.
+    pub(crate) rel_pos: usize,
+
+    /// The subgraph in which the reference points.  The reference is
+    /// relative to the last item in the view.
+    pub(crate) view: &'a [Container],
+    pub(crate) _phantom: PhantomData<*const T>,
+}
+
+impl<'a, Container> RecursiveRefType<'a> for Visiting<'a, Container> {
+    type Ref<T: ?Sized> = VisitingRef<'a, T, Container>;
+    type Value<T: 'a> = &'a T;
+}
+
+impl<T> BuilderRef<T> {
+    /// Convert the builder reference (absolute positioning) to a
+    /// storage reference (relative positioning).
+    pub fn to_storage(&self, new_pos: usize) -> StorageRef<T> {
+        let rel_pos = new_pos
+            .checked_sub(self.abs_pos)
+            .expect("Invalid reference type");
+        StorageRef {
+            rel_pos,
+            _node: PhantomData,
+        }
+    }
+}
+
+impl<T> StorageRef<T> {
+    /// Convert the storage reference (relative positioning without
+    /// view) to a visiting reference (relative positioning with
+    /// view).
+    pub fn to_visiting<'a, Container>(
+        &'a self,
+        view: &'a [Container],
+    ) -> VisitingRef<'a, T, Container> {
+        VisitingRef {
+            rel_pos: self.rel_pos,
+            view,
+            _phantom: PhantomData,
+        }
+    }
 }

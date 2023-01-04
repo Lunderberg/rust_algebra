@@ -14,6 +14,9 @@ extern crate self as graph;
 mod error;
 pub use error::*;
 
+mod recursive_types;
+pub use recursive_types::*;
+
 mod reference_types;
 pub use reference_types::*;
 
@@ -22,6 +25,3 @@ pub use typed_tree::*;
 
 mod builder;
 pub use builder::*;
-
-mod converters;
-pub use converters::*;

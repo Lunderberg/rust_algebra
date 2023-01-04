@@ -1,11 +1,9 @@
 use std::marker::PhantomData;
 
 use crate::{
-    BuilderToStorage, ContainedBy, ContainerOf, RecursiveFamily, RecursiveObj, RecursiveRefType,
-    Storage, TypedTree,
+    Builder, BuilderRef, ContainedBy, ContainerOf, RecursiveFamily, RecursiveObj, Storage,
+    TypedTree,
 };
-
-pub struct Builder;
 
 /// A constructor used to generate a `TypedTree<Container>`.
 pub struct BuilderObj<Container> {
@@ -17,20 +15,6 @@ impl Builder {
     pub fn new<Container>() -> BuilderObj<Container> {
         BuilderObj { nodes: Vec::new() }
     }
-}
-
-/// Reference type used while building a tree.  Any time the user
-/// pushes a node into the builder, they receive a reference.
-/// That reference may then be used to construct additional
-/// builder nodes.
-pub struct BuilderRef<T: ?Sized> {
-    pub(crate) abs_pos: usize,
-    _node: PhantomData<*const T>,
-}
-
-impl<'a> RecursiveRefType<'a> for Builder {
-    type Ref<T: ?Sized> = BuilderRef<T>;
-    type Value<T: 'a> = T;
 }
 
 impl<Container> BuilderObj<Container> {
@@ -45,8 +29,7 @@ impl<Container> BuilderObj<Container> {
         Container: 'a,
     {
         let abs_pos = self.nodes.len();
-        let converter = BuilderToStorage { size: abs_pos };
-        let storage_obj: F::Obj<'a, Storage> = F::builder_to_storage(builder_obj, converter);
+        let storage_obj: F::Obj<'a, Storage> = F::builder_to_storage(builder_obj, abs_pos);
         let container: Container = storage_obj.to_container();
         self.nodes.push(container);
         BuilderRef {

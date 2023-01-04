@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{RecursiveFamily, RecursiveObj, RecursiveRefType, StorageToVisiting};
+use crate::{RecursiveFamily, RecursiveObj, Storage, Visiting, VisitingRef};
 
 /// A container for an entire tree structure.  The container must
 /// be able to represent any individual node type that may occur
@@ -16,56 +16,6 @@ pub struct TypedTree<
     pub(crate) nodes: Vec<Container>,
     pub(crate) _phantom: PhantomData<*const RootNodeType>,
     pub(crate) _a: PhantomData<&'a usize>,
-}
-
-/// A usage annotation for objects that may be stored in the
-/// linearized structure.
-pub struct Storage;
-
-impl<'a> RecursiveRefType<'a> for Storage {
-    type Ref<T: ?Sized> = StorageRef<T>;
-    type Value<T: 'a> = T;
-}
-
-/// A reference in the linearized structure.
-pub struct StorageRef<T: ?Sized> {
-    /// The location of the referred-to node, relative to the node
-    /// holding the reference, in the direction of the start of the
-    /// `TypedTree`.
-    ///
-    /// `rel_pos` is unsigned, in order to avoid needing
-    /// loop-detection when walking through a graph.  In the
-    /// linearized structure, the index of a referent is strictly less
-    /// than the index of the node holding the reference, making
-    /// reference loops unrepresentable.
-    pub(crate) rel_pos: usize,
-    pub(crate) _node: PhantomData<*const T>,
-}
-
-/// A usage annotation for objects that contain a view into the full
-/// tree structure that they represent.
-pub struct Visiting<'a, Container: 'a> {
-    _a: PhantomData<&'a usize>,
-    _c: PhantomData<*const Container>,
-}
-
-/// Relative backreference to earlier node.  Used to represent
-/// references into recursively-defined structures while traversing
-/// the graph.
-pub struct VisitingRef<'a, T: ?Sized, Container: 'a> {
-    /// The reference to be followed, relative to the last element in
-    /// `view`.
-    pub(crate) rel_pos: usize,
-
-    /// The subgraph in which the reference points.  The reference is
-    /// relative to the last item in the view.
-    pub(crate) view: &'a [Container],
-    pub(crate) _phantom: PhantomData<*const T>,
-}
-
-impl<'a, Container> RecursiveRefType<'a> for Visiting<'a, Container> {
-    type Ref<T: ?Sized> = VisitingRef<'a, T, Container>;
-    type Value<T: 'a> = &'a T;
 }
 
 /// Exposes a type `T` as being potentially stored in a container
@@ -129,8 +79,7 @@ impl<
     > {
         let container: &Container = self.nodes.last().unwrap();
         let node: &RootNodeType = container.from_container()?;
-        let converter = StorageToVisiting { view: &self.nodes };
-        let live_ref = RootNodeType::Family::storage_to_visiting(node, converter);
+        let live_ref = RootNodeType::Family::storage_to_visiting(node, &self.nodes);
         Ok(live_ref)
     }
 }
@@ -162,10 +111,8 @@ impl<'a, T: RecursiveObj<'a, RefType = Storage>, Container: ContainerOf<T>>
 
         let container: &Container = &self.view[index];
         let node: &T = container.from_container()?;
-        let converter = StorageToVisiting {
-            view: &self.view[..=index],
-        };
-        let live_ref = T::Family::storage_to_visiting(node, converter);
+        let subview = &self.view[..=index];
+        let live_ref = T::Family::storage_to_visiting(node, subview);
         Ok(live_ref)
     }
 }

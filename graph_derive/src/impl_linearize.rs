@@ -272,7 +272,7 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
                         .map(|(i, field)| {
                             let field_ident = format_ident!("field_{i}");
                             let stream = if info.is_recursive_type(&field.ty) {
-                                quote! { converter.move_reference( #field_ident ) }
+                                quote! { #field_ident.to_storage(new_pos) }
                             } else {
                                 quote! { #field_ident }
                             };
@@ -316,7 +316,7 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
                         .map(|(i, field)| {
                             let field_ident = format_ident!("field_{i}");
                             let stream = if info.is_recursive_type(&field.ty) {
-                                quote! { converter.view_reference( #field_ident ) }
+                                quote! { #field_ident.to_visiting(view) }
                             } else {
                                 quote! { #field_ident }
                             };
@@ -353,7 +353,7 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
 
             fn builder_to_storage<#lifetime>(
                 builder_obj: Self::Obj<#lifetime, ::graph::Builder>,
-                converter: ::graph::BuilderToStorage,
+                new_pos: usize,
             ) -> Self::Obj<#lifetime, ::graph::Storage> {
                 match builder_obj {
                     #( #builder_to_storage_arms )*
@@ -362,7 +362,7 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
 
             fn storage_to_visiting<#lifetime, Container>(
                 storage_obj: & #lifetime Self::Obj<#lifetime, ::graph::Storage>,
-                converter: ::graph::StorageToVisiting<#lifetime, Container>,
+                view: & #lifetime [Container]
             ) -> Self::Obj<#lifetime, ::graph::Visiting<#lifetime, Container>> {
                 match storage_obj {
                     #( #storage_to_visiting_arms )*

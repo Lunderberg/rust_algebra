@@ -12,9 +12,7 @@ mod graph2 {
 
     /// Usage type (e.g. Storage, Builder, Visitor)
     pub trait RecursiveRefType {
-        type Ref<'a, T: 'a>
-        where
-            Self: 'a;
+        type Ref<'a, T: 'a>;
         type Value<'a, T: 'a>;
     }
 
@@ -22,7 +20,7 @@ mod graph2 {
     /// specific usage type.  At runtime, can convert between enums
     /// of different usage types.
     pub trait RecursiveFamily {
-        type Obj<'a, R: RecursiveRefType + 'a>: RecursiveObj<'a, RefType = R, Family = Self>;
+        type Obj<'a, R: RecursiveRefType + 'a>;
 
         fn builder_to_storage<'a>(
             builder_obj: Self::Obj<'a, Builder>,
@@ -82,10 +80,10 @@ mod graph2 {
     ////////////// TypedTree //////////////
     ///////////////////////////////////////
 
-    pub trait Visitable<'a, 'b>: 'a {
+    pub trait Visitable {
         type RetType;
 
-        fn borrow(&'b self) -> Result<Self::RetType, graph::Error>;
+        fn borrow(self) -> Result<Self::RetType, graph::Error>;
     }
 
     /// A container for an entire tree structure.  The container must
@@ -212,30 +210,35 @@ mod graph2 {
         _a: PhantomData<&'a [Container]>,
     }
 
-    #[derive(Clone, Copy)]
     pub struct VisitingRef<'a, T, Container> {
         rel_pos: usize,
         view: &'a [Container],
         _phantom: PhantomData<*const T>,
     }
 
+    impl<'a, T, Container> Clone for VisitingRef<'a, T, Container> {
+        fn clone(&self) -> Self {
+            VisitingRef {
+                rel_pos: self.rel_pos,
+                view: self.view,
+                _phantom: PhantomData,
+            }
+        }
+    }
+
+    impl<'a, T, Container> Copy for VisitingRef<'a, T, Container> {}
+
     impl<'b, Container> RecursiveRefType for Visiting<'b, Container> {
-        type Ref<'a, T: 'a> = VisitingRef<'b, T, Container> where 'b: 'a;
+        type Ref<'a, T: 'a> = VisitingRef<'b, T, Container>;
         type Value<'a, T: 'a> = &'a T;
     }
 
-    impl<
-            'a: 'b,
-            'b,
-            NodeType: RecursiveObj<'a, RefType = Storage> + 'a,
-            Container: ContainerOf<NodeType> + 'a,
-        > Visitable<'a, 'b> for VisitingRef<'a, NodeType, Container>
-    where
-        Self: 'a,
+    impl<'a, NodeType: RecursiveObj<'a, RefType = Storage>, Container: ContainerOf<NodeType>>
+        Visitable for VisitingRef<'a, NodeType, Container>
     {
         type RetType = <NodeType::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>;
 
-        fn borrow(&'b self) -> Result<Self::RetType, graph::Error> {
+        fn borrow(self) -> Result<Self::RetType, graph::Error> {
             let self_index = self
                 .view
                 .len()
@@ -290,9 +293,17 @@ mod graph2 {
         view: &'a [Container],
     }
 
+    impl<'a, Container> Clone for StorageToVisiting<'a, Container> {
+        fn clone(&self) -> Self {
+            StorageToVisiting { view: self.view }
+        }
+    }
+
+    impl<'a, Container> Copy for StorageToVisiting<'a, Container> {}
+
     impl<'a, Container> StorageToVisiting<'a, Container> {
         pub fn view_reference<T>(
-            &self,
+            self,
             storage_ref: &StorageRef<T>,
         ) -> VisitingRef<'a, T, Container> {
             VisitingRef {

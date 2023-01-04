@@ -19,17 +19,15 @@ impl Builder {
 
 impl<Container> BuilderObj<Container> {
     /// Insert a new node to the builder
-    pub fn push<'a, F: RecursiveFamily, T: RecursiveObj<'a, RefType = Builder, Family = F>>(
+    pub fn push<'a, T: RecursiveObj<'a, RefType = Builder>>(
         &mut self,
         builder_obj: T,
-    ) -> BuilderRef<F::Obj<'a, Storage>>
+    ) -> BuilderRef<<T::Family as RecursiveFamily>::Obj<'a, Storage>>
     where
-        Container: ContainerOf<F::Obj<'a, Storage>>,
-        F: RecursiveFamily<Obj<'a, Builder> = T>,
-        Container: 'a,
+        Container: ContainerOf<<T::Family as RecursiveFamily>::Obj<'a, Storage>>,
     {
         let abs_pos = self.nodes.len();
-        let storage_obj: F::Obj<'a, Storage> = F::builder_to_storage(builder_obj, abs_pos);
+        let storage_obj = <T::Family as RecursiveFamily>::builder_to_storage(builder_obj, abs_pos);
         let container: Container = storage_obj.to_container();
         self.nodes.push(container);
         BuilderRef {

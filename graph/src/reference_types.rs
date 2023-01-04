@@ -6,7 +6,7 @@ use crate::RecursiveRefType;
 pub struct Builder;
 
 impl<'a> RecursiveRefType<'a> for Builder {
-    type Ref<T: ?Sized> = BuilderRef<T>;
+    type Ref<T> = BuilderRef<T>;
     type Value<T: 'a> = T;
 }
 
@@ -14,7 +14,7 @@ impl<'a> RecursiveRefType<'a> for Builder {
 /// pushes a node into the builder, they receive a reference.
 /// That reference may then be used to construct additional
 /// builder nodes.
-pub struct BuilderRef<T: ?Sized> {
+pub struct BuilderRef<T> {
     pub(crate) abs_pos: usize,
     pub(crate) _node: PhantomData<*const T>,
 }
@@ -24,12 +24,12 @@ pub struct BuilderRef<T: ?Sized> {
 pub struct Storage;
 
 impl<'a> RecursiveRefType<'a> for Storage {
-    type Ref<T: ?Sized> = StorageRef<T>;
+    type Ref<T> = StorageRef<T>;
     type Value<T: 'a> = T;
 }
 
 /// A reference in the linearized structure.
-pub struct StorageRef<T: ?Sized> {
+pub struct StorageRef<T> {
     /// The location of the referred-to node, relative to the node
     /// holding the reference, in the direction of the start of the
     /// `TypedTree`.
@@ -53,7 +53,7 @@ pub struct Visiting<'a, Container: 'a> {
 /// Relative backreference to earlier node.  Used to represent
 /// references into recursively-defined structures while traversing
 /// the graph.
-pub struct VisitingRef<'a, T: ?Sized, Container: 'a> {
+pub struct VisitingRef<'a, T, Container: 'a> {
     /// The reference to be followed, relative to the last element in
     /// `view`.
     pub(crate) rel_pos: usize,
@@ -65,7 +65,7 @@ pub struct VisitingRef<'a, T: ?Sized, Container: 'a> {
 }
 
 impl<'a, Container> RecursiveRefType<'a> for Visiting<'a, Container> {
-    type Ref<T: ?Sized> = VisitingRef<'a, T, Container>;
+    type Ref<T> = VisitingRef<'a, T, Container>;
     type Value<T: 'a> = &'a T;
 }
 

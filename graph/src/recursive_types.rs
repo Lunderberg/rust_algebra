@@ -17,7 +17,7 @@ pub trait RecursiveRefType<'a>: 'a {
     ///
     /// The representation of a recursive reference to `T` for
     /// this reference type.
-    type Ref<T: ?Sized>;
+    type Ref<T>;
 
     /// The representation to use for all other types
     ///

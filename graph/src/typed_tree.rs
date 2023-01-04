@@ -6,16 +6,9 @@ use crate::{RecursiveFamily, RecursiveObj, Storage, Visiting, VisitingRef};
 /// be able to represent any individual node type that may occur
 /// within the tree.  These should be expected by implementing
 /// `ContainerOf<Node>` for each type that may be contained.
-pub struct TypedTree<
-    'a,
-    RootNodeType: RecursiveObj<'a, RefType = Storage>,
-    Container = <<RootNodeType as RecursiveObj<'a>>::Family as RecursiveFamily>::DefaultContainer<
-        'a,
-    >,
-> {
+pub struct TypedTree<RootNodeType, Container> {
     pub(crate) nodes: Vec<Container>,
     pub(crate) _phantom: PhantomData<*const RootNodeType>,
-    pub(crate) _a: PhantomData<&'a usize>,
 }
 
 /// Exposes a type `T` as being potentially stored in a container
@@ -59,28 +52,14 @@ where
     }
 }
 
-impl<
-        'a,
-        RootNodeType: RecursiveObj<'a, RefType = Storage>,
-        Container: ContainerOf<RootNodeType>,
-    > TypedTree<'a, RootNodeType, Container>
-{
+impl<RootNodeType, Container> TypedTree<RootNodeType, Container> {
     /// Borrow the top-level node, starting a recursive visit of the graph.
-    ///
-    /// Intentionally introduce OutLiveType as a deducible parameter,
-    /// rather than specifying the return type as
-    /// `Result<Node::LiveType<'a>>`.  This way, the usage of the
-    /// output value can be used to deduce the return type.
-    pub fn borrow<'b: 'a>(
-        &'b self,
-    ) -> Result<
-        <RootNodeType::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>,
-        graph::Error,
-    > {
-        let container: &Container = self.nodes.last().unwrap();
-        let node: &RootNodeType = container.from_container()?;
-        let live_ref = RootNodeType::Family::storage_to_visiting(node, &self.nodes);
-        Ok(live_ref)
+    pub fn root(&self) -> VisitingRef<RootNodeType, Container> {
+        VisitingRef {
+            rel_pos: 0,
+            view: &self.nodes,
+            _phantom: PhantomData,
+        }
     }
 }
 

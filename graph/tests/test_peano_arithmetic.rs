@@ -10,7 +10,7 @@ mod peano {
 }
 
 impl<'a> peano::Number<'a> {
-    fn new(val: u8) -> TypedTree<'a, Self> {
+    fn new(val: u8) -> TypedTree<Self, peano::container::Number<'a>> {
         let mut builder = Builder::new();
         let mut a = builder.push(peano::Number::Zero);
         for _ in 0..val {
@@ -38,7 +38,7 @@ impl<'a, Container: ContainerOf<peano::Number<'a>>> peano::Number<'a, Visiting<'
 
 #[test]
 fn construct() {
-    let _three: TypedTree<'_, peano::Number> = {
+    let _three: TypedTree<peano::Number, peano::container::Number<'_>> = {
         let mut builder = Builder::new();
         let mut a = builder.push(peano::Number::Zero);
         for _ in 0..3 {
@@ -56,6 +56,6 @@ fn call_static_method() {
 #[test]
 fn call_instance_method() {
     let three = peano::Number::new(3);
-    let root_node: peano::Number<_> = three.borrow().unwrap();
+    let root_node: peano::Number<_> = three.root().borrow().unwrap();
     assert_eq!(root_node.value(), 3);
 }

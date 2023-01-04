@@ -67,15 +67,6 @@ mod graph2 {
         _node: PhantomData<*const T>,
     }
 
-    impl<T> Clone for StorageRef<T> {
-        fn clone(&self) -> Self {
-            Self {
-                rel_pos: self.rel_pos,
-                _node: PhantomData,
-            }
-        }
-    }
-
     impl<T> StorageRef<T> {
         pub fn to_visiting<'a, Container>(
             &'a self,

@@ -230,7 +230,7 @@ mod graph2 {
             VisitingRef {
                 rel_pos: self.rel_pos,
                 view: self.view,
-                _phantom: PhantomData,
+                _phantom: self._phantom,
             }
         }
     }

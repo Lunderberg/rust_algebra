@@ -98,3 +98,21 @@ impl<T> StorageRef<T> {
         }
     }
 }
+
+/// Implementation of Clone for any VisitingRef.  The #[derive(Clone)]
+/// macro can't be used here, because it requires that all generic
+/// parameters implement Clone.  Therefore, even though the T and
+/// Container parameters only appear as a copy-able reference and a
+/// copy-able PhantomData, the automatic implementation wouldn't be
+/// generated.
+impl<'a, T, Container> Clone for VisitingRef<'a, T, Container> {
+    fn clone(&self) -> Self {
+        VisitingRef {
+            rel_pos: self.rel_pos,
+            view: self.view,
+            _phantom: self._phantom,
+        }
+    }
+}
+
+impl<'a, T, Container> Copy for VisitingRef<'a, T, Container> {}

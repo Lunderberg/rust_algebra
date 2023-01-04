@@ -63,17 +63,19 @@ impl<RootNodeType, Container> TypedTree<RootNodeType, Container> {
     }
 }
 
-impl<'a, T: RecursiveObj<'a, RefType = Storage>, Container: ContainerOf<T>>
-    VisitingRef<'a, T, Container>
-{
+impl<'a, NodeType, Container> VisitingRef<'a, NodeType, Container> {
     /// Recurse down a level of the graph
     ///
     /// When visiting a recursive graph, recursive references are
-    /// represented as `LiveGraphRef` instances.  Borrowing the
-    /// reference constructs the live type for the referenced type.
+    /// represented as `VisitingRef` instances.  Borrowing the
+    /// reference constructs an instance of the pointed-to enum, with
+    /// further recursion represented by `VisitingRef`.
     pub fn borrow(
         &self,
-    ) -> Result<<T::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>, graph::Error>
+    ) -> Result<<NodeType::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>, graph::Error>
+    where
+        NodeType: RecursiveObj<'a, RefType = Storage>,
+        Container: ContainerOf<NodeType>,
     {
         let self_index = self
             .view
@@ -89,9 +91,9 @@ impl<'a, T: RecursiveObj<'a, RefType = Storage>, Container: ContainerOf<T>>
             })?;
 
         let container: &Container = &self.view[index];
-        let node: &T = container.from_container()?;
+        let node: &NodeType = container.from_container()?;
         let subview = &self.view[..=index];
-        let live_ref = T::Family::storage_to_visiting(node, subview);
+        let live_ref = NodeType::Family::storage_to_visiting(node, subview);
         Ok(live_ref)
     }
 }

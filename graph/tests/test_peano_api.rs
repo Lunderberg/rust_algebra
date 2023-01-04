@@ -24,12 +24,12 @@ mod graph2 {
 
         fn builder_to_storage<'a>(
             builder_obj: Self::Obj<'a, Builder>,
-            converter: BuilderToStorage,
+            new_pos: usize,
         ) -> Self::Obj<'a, Storage>;
 
         fn storage_to_visiting<'a, Container>(
             storage_obj: &'a Self::Obj<'a, Storage>,
-            converter: StorageToVisiting<'a, Container>,
+            view: &'a [Container],
         ) -> Self::Obj<'a, Visiting<'a, Container>>;
     }
 
@@ -72,6 +72,19 @@ mod graph2 {
             Self {
                 rel_pos: self.rel_pos,
                 _node: PhantomData,
+            }
+        }
+    }
+
+    impl<T> StorageRef<T> {
+        pub fn to_visiting<'a, Container>(
+            &'a self,
+            view: &'a [Container],
+        ) -> VisitingRef<'a, T, Container> {
+            VisitingRef {
+                rel_pos: self.rel_pos,
+                view,
+                _phantom: PhantomData,
             }
         }
     }
@@ -181,9 +194,8 @@ mod graph2 {
             T::Family: RecursiveFamily<Obj<'a, Builder> = T>,
         {
             let abs_pos = self.nodes.len();
-            let converter = BuilderToStorage { size: abs_pos };
             let storage_obj =
-                <T::Family as RecursiveFamily>::builder_to_storage(builder_obj, converter);
+                <T::Family as RecursiveFamily>::builder_to_storage(builder_obj, abs_pos);
             let container: Container = storage_obj.to_container();
             self.nodes.push(container);
             BuilderRef {
@@ -198,6 +210,18 @@ mod graph2 {
             Self {
                 nodes: builder.nodes,
                 _phantom: PhantomData,
+            }
+        }
+    }
+
+    impl<T> BuilderRef<T> {
+        pub fn to_storage(&self, new_pos: usize) -> StorageRef<T> {
+            let rel_pos = new_pos
+                .checked_sub(self.abs_pos)
+                .expect("Invalid reference type");
+            StorageRef {
+                rel_pos,
+                _node: PhantomData,
             }
         }
     }
@@ -255,62 +279,9 @@ mod graph2 {
 
             let container: &Container = &self.view[index];
             let node: &NodeType = container.from_container()?;
-            let converter = StorageToVisiting {
-                view: &self.view[..=index],
-            };
-            let live_ref =
-                <NodeType::Family as RecursiveFamily>::storage_to_visiting(node, converter);
+            let view = &self.view[..=index];
+            let live_ref = <NodeType::Family as RecursiveFamily>::storage_to_visiting(node, view);
             Ok(live_ref)
-        }
-    }
-
-    ////////////////////////////////////////
-    ////////////// Converters //////////////
-    ////////////////////////////////////////
-
-    /// Converts from Builder references using absolute position to
-    /// Storage references using relative position.
-    pub struct BuilderToStorage {
-        size: usize,
-    }
-
-    impl BuilderToStorage {
-        pub fn move_reference<T>(&self, old_ref: BuilderRef<T>) -> StorageRef<T> {
-            let rel_pos = self
-                .size
-                .checked_sub(old_ref.abs_pos)
-                .expect("Invalid reference type");
-            StorageRef {
-                rel_pos,
-                _node: PhantomData,
-            }
-        }
-    }
-
-    /// Converts from Storage references as they are stored in the
-    /// contiguous array to a Visiting reference
-    pub struct StorageToVisiting<'a, Container> {
-        view: &'a [Container],
-    }
-
-    impl<'a, Container> Clone for StorageToVisiting<'a, Container> {
-        fn clone(&self) -> Self {
-            StorageToVisiting { view: self.view }
-        }
-    }
-
-    impl<'a, Container> Copy for StorageToVisiting<'a, Container> {}
-
-    impl<'a, Container> StorageToVisiting<'a, Container> {
-        pub fn view_reference<T>(
-            self,
-            storage_ref: &StorageRef<T>,
-        ) -> VisitingRef<'a, T, Container> {
-            VisitingRef {
-                rel_pos: storage_ref.rel_pos,
-                view: self.view,
-                _phantom: PhantomData,
-            }
         }
     }
 }
@@ -338,21 +309,21 @@ pub mod peano {
 
         fn builder_to_storage<'a>(
             builder_obj: Self::Obj<'a, Builder>,
-            converter: BuilderToStorage,
+            new_pos: usize,
         ) -> Self::Obj<'a, Storage> {
             match builder_obj {
                 Number::Zero => Number::Zero,
-                Number::Successor(old_ref) => Number::Successor(converter.move_reference(old_ref)),
+                Number::Successor(old_ref) => Number::Successor(old_ref.to_storage(new_pos)),
             }
         }
 
         fn storage_to_visiting<'a, Container>(
             storage_obj: &'a Self::Obj<'a, Storage>,
-            converter: StorageToVisiting<'a, Container>,
+            view: &'a [Container],
         ) -> Self::Obj<'a, Visiting<'a, Container>> {
             match &storage_obj {
                 Number::Zero => Number::Zero,
-                Number::Successor(old_ref) => Number::Successor(converter.view_reference(old_ref)),
+                Number::Successor(old_ref) => Number::Successor(old_ref.to_visiting(view)),
             }
         }
     }
@@ -511,27 +482,23 @@ pub mod direct_expr {
 
         fn builder_to_storage<'a>(
             builder_obj: Self::Obj<'a, Builder>,
-            converter: BuilderToStorage,
+            new_pos: usize,
         ) -> Self::Obj<'a, Storage> {
             match builder_obj {
                 IntExpr::Int(val) => IntExpr::Int(val),
                 IntExpr::IntRef(val) => IntExpr::IntRef(val),
-                IntExpr::Add(a, b) => {
-                    IntExpr::Add(converter.move_reference(a), converter.move_reference(b))
-                }
+                IntExpr::Add(a, b) => IntExpr::Add(a.to_storage(new_pos), b.to_storage(new_pos)),
             }
         }
 
         fn storage_to_visiting<'a, Container>(
             storage_obj: &'a Self::Obj<'a, Storage>,
-            converter: StorageToVisiting<'a, Container>,
+            view: &'a [Container],
         ) -> Self::Obj<'a, Visiting<'a, Container>> {
             match storage_obj {
                 IntExpr::Int(val) => IntExpr::Int(val),
                 IntExpr::IntRef(val) => IntExpr::IntRef(val),
-                IntExpr::Add(a, b) => {
-                    IntExpr::Add(converter.view_reference(a), converter.view_reference(b))
-                }
+                IntExpr::Add(a, b) => IntExpr::Add(a.to_visiting(view), b.to_visiting(view)),
             }
         }
     }

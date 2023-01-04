@@ -131,25 +131,6 @@ mod graph2 {
         }
     }
 
-    impl<
-            'a: 'b,
-            'b: 'a,
-            RootNodeType: RecursiveObj<'a, RefType = Storage>,
-            Container: ContainerOf<RootNodeType> + 'a,
-        > Visitable<'a, 'b> for TypedTree<'a, RootNodeType, Container>
-    {
-        type RetType = <RootNodeType::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>;
-
-        fn borrow(&'b self) -> Result<Self::RetType, graph::Error> {
-            let container: &Container = self.nodes.last().unwrap();
-            let node: &RootNodeType = container.from_container()?;
-            let converter = StorageToVisiting { view: &self.nodes };
-            let live_ref =
-                <RootNodeType::Family as RecursiveFamily>::storage_to_visiting(node, converter);
-            Ok(live_ref)
-        }
-    }
-
     impl<'a, RootNodeType: RecursiveObj<'a, RefType = Storage>, Container>
         TypedTree<'a, RootNodeType, Container>
     {
@@ -458,8 +439,8 @@ fn match_root() -> Result<(), graph::Error> {
     let one = graph2::TypedTree::<peano::Number, peano::NumberContainer>::new(1);
 
     use peano::Number;
-    assert!(matches!(zero.borrow()?, Number::Zero));
-    assert!(matches!(one.borrow()?, Number::Successor(_)));
+    assert!(matches!(zero.root().borrow()?, Number::Zero));
+    assert!(matches!(one.root().borrow()?, Number::Successor(_)));
 
     Ok(())
 }
@@ -469,7 +450,7 @@ fn match_live_ref() -> Result<(), graph::Error> {
     let three = graph2::TypedTree::<peano::Number, peano::NumberContainer>::new(3);
 
     use peano::Number;
-    let value = match three.borrow()? {
+    let value = match three.root().borrow()? {
         Number::Zero => 0,
         Number::Successor(a) => match a.borrow()? {
             Number::Zero => 1,
@@ -494,7 +475,7 @@ fn match_live_ref() -> Result<(), graph::Error> {
 #[test]
 fn call_instance_method() -> Result<(), graph::Error> {
     let three = graph2::TypedTree::<peano::Number, peano::NumberContainer>::new(3);
-    let value = three.borrow()?.value();
+    let value = three.root().borrow()?.value();
     assert_eq!(value, 3);
     Ok(())
 }

@@ -299,7 +299,7 @@ pub mod peano {
 
     pub enum Number<'a, R: RecursiveRefType + 'a = Storage> {
         Zero,
-        Successor(R::Ref<'a, Number<'a, Storage>>),
+        Successor(R::Ref<'a, Number<'a>>),
     }
 
     pub struct NumberFamily;
@@ -334,7 +334,7 @@ pub mod peano {
     }
 
     pub enum NumberContainer<'a> {
-        Number(Number<'a, Storage>),
+        Number(Number<'a>),
     }
 
     impl<'b> ContainerOf<Number<'b>> for NumberContainer<'b> {
@@ -469,10 +469,7 @@ pub mod direct_expr {
     pub enum IntExpr<'a, R: RecursiveRefType + 'a = Storage> {
         Int(R::Value<'a, i64>),
         IntRef(R::Value<'a, &'a i64>),
-        Add(
-            R::Ref<'a, IntExpr<'a, Storage>>,
-            R::Ref<'a, IntExpr<'a, Storage>>,
-        ),
+        Add(R::Ref<'a, IntExpr<'a>>, R::Ref<'a, IntExpr<'a>>),
     }
 
     pub struct IntExprFamily;
@@ -509,7 +506,7 @@ pub mod direct_expr {
     }
 
     pub enum IntExprContainer<'a> {
-        IntExpr(IntExpr<'a, Storage>),
+        IntExpr(IntExpr<'a>),
     }
 
     impl<'b> ContainerOf<IntExpr<'b>> for IntExprContainer<'b> {

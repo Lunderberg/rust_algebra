@@ -192,20 +192,23 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
             if self.info.is_self_reference(&ty) {
                 let (_, generic_args) = &self.info.user_defined_generics;
                 syn::parse2(quote! {
-                    Ref::Ref<#ty<
-                            #lifetime
-                            #( , #generic_args )*
-                        >>
+                    Ref::Ref<#lifetime,
+                             #ty<
+                                 #lifetime
+                                 #( , #generic_args )*
+                                 >
+                             >
                 })
                 .expect("Error parsing re-written recursive type for generic enum")
             } else if self.info.is_recursive_type(&ty) {
                 syn::parse2(quote! {
-                    Ref::Ref<#ty<#lifetime, ::graph::Storage>>
+                    Ref::Ref<#lifetime,
+                             #ty<#lifetime, ::graph::Storage>>
                 })
                 .expect("Error parsing re-written recursive type for generic enum")
             } else {
                 syn::parse2(quote! {
-                    Ref::Value<#ty>
+                    Ref::Value<#lifetime, #ty>
                 })
                 .expect("Error parsing re-written recursive type for generic enum")
             }
@@ -219,7 +222,7 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
 
     item_enum.generics = syn::parse2(quote! {
         <#lifetime
-         , Ref: ::graph::RecursiveRefType<#lifetime> = ::graph::Storage
+         , Ref: ::graph::RecursiveRefType + #lifetime = ::graph::Storage
          #( , #generic_params )*
          >
     })
@@ -235,7 +238,7 @@ fn generate_recursive_obj_impl<'a>(info: &'a EnumInfo) -> impl Iterator<Item = s
     let ident = &info.item_enum.ident;
 
     let stream = quote! {
-        impl<#lifetime, RefType: ::graph::RecursiveRefType<#lifetime>>
+        impl<#lifetime, RefType: ::graph::RecursiveRefType>
             ::graph::RecursiveObj<#lifetime> for
             #ident<#lifetime, RefType> {
                 type Family = super::family::#ident;
@@ -345,7 +348,7 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
 
     let struct_impl = syn::parse2(quote! {
         impl ::graph::RecursiveFamily for #ident {
-            type Obj<#lifetime, Ref: ::graph::RecursiveRefType<#lifetime>>
+            type Obj<#lifetime, Ref: ::graph::RecursiveRefType + #lifetime>
                 = super::generic_enum::#ident<#lifetime, Ref>;
 
             type DefaultContainer<#lifetime>

@@ -5,9 +5,9 @@ use crate::RecursiveRefType;
 /// A usage annotation for objects that are being constructed.
 pub struct Builder;
 
-impl<'a> RecursiveRefType<'a> for Builder {
-    type Ref<T> = BuilderRef<T>;
-    type Value<T: 'a> = T;
+impl RecursiveRefType for Builder {
+    type Ref<'a, T: 'a> = BuilderRef<T>;
+    type Value<'a, T: 'a> = T;
 }
 
 /// Reference type used while building a tree.  Any time the user
@@ -23,9 +23,9 @@ pub struct BuilderRef<T> {
 /// linearized structure.
 pub struct Storage;
 
-impl<'a> RecursiveRefType<'a> for Storage {
-    type Ref<T> = StorageRef<T>;
-    type Value<T: 'a> = T;
+impl RecursiveRefType for Storage {
+    type Ref<'a, T: 'a> = StorageRef<T>;
+    type Value<'a, T: 'a> = T;
 }
 
 /// A reference in the linearized structure.
@@ -64,9 +64,9 @@ pub struct VisitingRef<'a, T, Container: 'a> {
     pub(crate) _phantom: PhantomData<*const T>,
 }
 
-impl<'a, Container> RecursiveRefType<'a> for Visiting<'a, Container> {
-    type Ref<T> = VisitingRef<'a, T, Container>;
-    type Value<T: 'a> = &'a T;
+impl<'b, Container> RecursiveRefType for Visiting<'b, Container> {
+    type Ref<'a, T: 'a> = VisitingRef<'b, T, Container>;
+    type Value<'a, T: 'a> = &'a T;
 }
 
 impl<T> BuilderRef<T> {

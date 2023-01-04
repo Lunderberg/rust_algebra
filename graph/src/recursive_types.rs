@@ -6,7 +6,7 @@ use crate::{Builder, Storage, Visiting};
 /// type using `GraphRef<T>` instances for recursive references and as
 /// a lifetimed type using `LiveGraphRef<'a, BaseType, T>` for
 /// recursive references.
-pub trait RecursiveRefType<'a>: 'a {
+pub trait RecursiveRefType {
     /// The representation to use for recursive references
     ///
     /// # Arguments
@@ -17,7 +17,7 @@ pub trait RecursiveRefType<'a>: 'a {
     ///
     /// The representation of a recursive reference to `T` for
     /// this reference type.
-    type Ref<T>;
+    type Ref<'a, T: 'a>;
 
     /// The representation to use for all other types
     ///
@@ -29,14 +29,14 @@ pub trait RecursiveRefType<'a>: 'a {
     ///
     /// The representation of a value type `T` for this usage.
     /// (e.g. `T` for storage, `&T` for visiting)
-    type Value<T: 'a>;
+    type Value<'a, T: 'a>;
 }
 
 /// Meta-object, at compile-time can generate an enum for a
 /// specific usage type.  At runtime, can convert between enums
 /// of different usage types.
 pub trait RecursiveFamily {
-    type Obj<'a, R: RecursiveRefType<'a>>: RecursiveObj<'a, RefType = R, Family = Self> + 'a;
+    type Obj<'a, R: RecursiveRefType + 'a>: RecursiveObj<'a, RefType = R, Family = Self> + 'a;
 
     type DefaultContainer<'a>: 'a;
 
@@ -60,5 +60,5 @@ pub trait RecursiveFamily {
 /// internally convert it to an object of type `F::Obj<Storage>`)
 pub trait RecursiveObj<'a>: 'a {
     type Family: RecursiveFamily<Obj<'a, Self::RefType> = Self>;
-    type RefType: RecursiveRefType<'a>;
+    type RefType: RecursiveRefType;
 }

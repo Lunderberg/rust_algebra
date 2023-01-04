@@ -93,12 +93,6 @@ mod graph2 {
     ////////////// TypedTree //////////////
     ///////////////////////////////////////
 
-    pub trait Visitable {
-        type RetType;
-
-        fn borrow(self) -> Result<Self::RetType, graph::Error>;
-    }
-
     /// A container for an entire tree structure.  The container must
     /// be able to represent any individual node type that may occur
     /// within the tree.  These should be expected by implementing
@@ -257,12 +251,17 @@ mod graph2 {
         type Value<'a, T: 'a> = &'a T;
     }
 
-    impl<'a, NodeType: RecursiveObj<'a, RefType = Storage>, Container: ContainerOf<NodeType>>
-        Visitable for VisitingRef<'a, NodeType, Container>
-    {
-        type RetType = <NodeType::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>;
-
-        fn borrow(self) -> Result<Self::RetType, graph::Error> {
+    impl<'a, NodeType, Container> VisitingRef<'a, NodeType, Container> {
+        pub fn borrow(
+            self,
+        ) -> Result<
+            <NodeType::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>,
+            graph::Error,
+        >
+        where
+            NodeType: RecursiveObj<'a, RefType = Storage>,
+            Container: ContainerOf<NodeType>,
+        {
             let self_index = self
                 .view
                 .len()
@@ -285,8 +284,6 @@ mod graph2 {
         }
     }
 }
-
-use graph2::Visitable;
 
 pub mod peano {
     // Initial definition

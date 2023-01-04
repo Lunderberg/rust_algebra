@@ -12,7 +12,7 @@ mod graph2 {
 
     /// Usage type (e.g. Storage, Builder, Visitor)
     pub trait RecursiveRefType {
-        type Ref<'a, T: 'a + ?Sized>
+        type Ref<'a, T: 'a>
         where
             Self: 'a;
         type Value<'a, T: 'a>;
@@ -56,12 +56,12 @@ mod graph2 {
     pub struct Storage;
 
     impl RecursiveRefType for Storage {
-        type Ref<'a, T: 'a + ?Sized> = StorageRef<T>;
+        type Ref<'a, T: 'a> = StorageRef<T>;
         type Value<'a, T: 'a> = T;
     }
 
     /// Represents a reference in the linearized structure.
-    pub struct StorageRef<T: ?Sized> {
+    pub struct StorageRef<T> {
         /// Position of the referred-to type, relative to the position
         /// of the `RecursiveFamily::Obj<Storage>` that holds the
         /// `StorageRef`.
@@ -69,7 +69,7 @@ mod graph2 {
         _node: PhantomData<*const T>,
     }
 
-    impl<T: ?Sized> Clone for StorageRef<T> {
+    impl<T> Clone for StorageRef<T> {
         fn clone(&self) -> Self {
             Self {
                 rel_pos: self.rel_pos,
@@ -162,13 +162,13 @@ mod graph2 {
     /// pushes a node into the builder, they receive a reference.
     /// That reference may then be used to construct additional
     /// builder nodes.
-    pub struct BuilderRef<T: ?Sized> {
+    pub struct BuilderRef<T> {
         abs_pos: usize,
         _node: PhantomData<*const T>,
     }
 
     impl RecursiveRefType for Builder {
-        type Ref<'a, T: 'a + ?Sized> = BuilderRef<T>;
+        type Ref<'a, T: 'a> = BuilderRef<T>;
         type Value<'a, T: 'a> = T;
     }
 
@@ -213,14 +213,14 @@ mod graph2 {
     }
 
     #[derive(Clone, Copy)]
-    pub struct VisitingRef<'a, T: ?Sized, Container> {
+    pub struct VisitingRef<'a, T, Container> {
         rel_pos: usize,
         view: &'a [Container],
         _phantom: PhantomData<*const T>,
     }
 
     impl<'b, Container> RecursiveRefType for Visiting<'b, Container> {
-        type Ref<'a, T: 'a + ?Sized> = VisitingRef<'b, T, Container> where 'b: 'a;
+        type Ref<'a, T: 'a> = VisitingRef<'b, T, Container> where 'b: 'a;
         type Value<'a, T: 'a> = &'a T;
     }
 

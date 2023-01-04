@@ -88,7 +88,10 @@ mod graph2 {
     /// be able to represent any individual node type that may occur
     /// within the tree.  These should be expected by implementing
     /// `ContainerOf<Node>` for each type that may be contained.
-    pub struct TypedTree<RootNodeType, Container> {
+    pub struct TypedTree<
+        RootNodeType: HasDefaultContainer,
+        Container = <RootNodeType as HasDefaultContainer>::DefaultContainer,
+    > {
         nodes: Vec<Container>,
         _phantom: PhantomData<*const RootNodeType>,
     }
@@ -126,7 +129,49 @@ mod graph2 {
         }
     }
 
-    impl<RootNodeType, Container> TypedTree<RootNodeType, Container> {
+    /// Utility trait for providing a default container.
+    ///
+    /// Most of the time, a tree should be contained in the enum that
+    /// was generated to contain it, or any recursively referenced
+    /// type contained by it.  However, in some cases it may be
+    /// desirable to use a broader container type.  For example,
+    /// consider the following structure.
+    ///
+    /// ```
+    /// #[recursive_graph]
+    /// mod my_graph {
+    ///     enum BoolExpr {
+    ///         And(BoolExpr, BoolExpr),
+    ///         Equal(IntExpr, IntExpr),
+    ///     }
+    ///
+    ///     enum IntExpr {
+    ///         Int(i64),
+    ///         Add(IntExpr, IntExpr),
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// An `IntExpr` can only refer to itself, while a `BoolExpr` may
+    /// refer either to itself or to an `IntExpr`.  The auto-generated
+    /// type `my_graph::container::IntExpr` and
+    /// `my_graph::container::BoolExpr` may be used for their
+    /// respective types.  However, an `IntExpr` stored inside a
+    /// `Vec<container::IntExpr>` would need to be converted into a
+    /// `Vec<container::BoolExpr>` prior to use in a `BoolExpr`.  The
+    /// user may want to use the `IntExpr` inside a
+    /// `Vec<container::BoolExpr>` from the start, such that no
+    /// conversion is required.
+    ///
+    /// Since this isn't the typical case, this trait is implemented
+    /// for all recursive types, allowing a default container to be
+    /// chosen for each recursive type.
+    pub trait HasDefaultContainer: Sized {
+        type DefaultContainer: ContainerOf<Self>;
+    }
+
+    impl<RootNodeType: HasDefaultContainer, Container> TypedTree<RootNodeType, Container> {
+        /// Returns a reference to the root node of the tree
         pub fn root(&self) -> VisitingRef<RootNodeType, Container> {
             VisitingRef {
                 rel_pos: 0,
@@ -190,7 +235,9 @@ mod graph2 {
         }
     }
 
-    impl<RootNodeType, Container> From<BuilderObj<Container>> for TypedTree<RootNodeType, Container> {
+    impl<RootNodeType: HasDefaultContainer, Container> From<BuilderObj<Container>>
+        for TypedTree<RootNodeType, Container>
+    {
         fn from(builder: BuilderObj<Container>) -> Self {
             Self {
                 nodes: builder.nodes,
@@ -335,6 +382,10 @@ pub mod peano {
             }
         }
     }
+
+    impl<'a> HasDefaultContainer for Number<'a> {
+        type DefaultContainer = NumberContainer<'a>;
+    }
 }
 
 impl<'a, Container: graph2::ContainerOf<peano::Number<'a>> + 'a>
@@ -381,7 +432,7 @@ fn construct_annotated() {
 
 #[test]
 fn construct_unannotated() {
-    let _three: graph2::TypedTree<peano::Number, peano::NumberContainer> = {
+    let _three: graph2::TypedTree<peano::Number> = {
         let mut builder = graph2::Builder::new();
         let mut a = builder.push(peano::Number::Zero);
 
@@ -394,13 +445,13 @@ fn construct_unannotated() {
 
 #[test]
 fn call_static_method() {
-    let _three = graph2::TypedTree::<peano::Number, peano::NumberContainer>::new(3);
+    let _three = graph2::TypedTree::<peano::Number>::new(3);
 }
 
 #[test]
 fn match_root() -> Result<(), graph::Error> {
-    let zero = graph2::TypedTree::<peano::Number, peano::NumberContainer>::new(0);
-    let one = graph2::TypedTree::<peano::Number, peano::NumberContainer>::new(1);
+    let zero = graph2::TypedTree::<peano::Number>::new(0);
+    let one = graph2::TypedTree::<peano::Number>::new(1);
 
     use peano::Number;
     assert!(matches!(zero.root().borrow()?, Number::Zero));
@@ -411,7 +462,7 @@ fn match_root() -> Result<(), graph::Error> {
 
 #[test]
 fn match_live_ref() -> Result<(), graph::Error> {
-    let three = graph2::TypedTree::<peano::Number, peano::NumberContainer>::new(3);
+    let three = graph2::TypedTree::<peano::Number>::new(3);
 
     use peano::Number;
     let value = match three.root().borrow()? {
@@ -438,7 +489,7 @@ fn match_live_ref() -> Result<(), graph::Error> {
 
 #[test]
 fn call_instance_method() -> Result<(), graph::Error> {
-    let three = graph2::TypedTree::<peano::Number, peano::NumberContainer>::new(3);
+    let three = graph2::TypedTree::<peano::Number>::new(3);
     let value = three.root().borrow()?.value();
     assert_eq!(value, 3);
     Ok(())
@@ -507,6 +558,10 @@ pub mod direct_expr {
             }
         }
     }
+
+    impl<'a> HasDefaultContainer for IntExpr<'a> {
+        type DefaultContainer = IntExprContainer<'a>;
+    }
 }
 
 impl<'a, Container: graph2::ContainerOf<direct_expr::IntExpr<'a>>>
@@ -524,7 +579,7 @@ impl<'a, Container: graph2::ContainerOf<direct_expr::IntExpr<'a>>>
 #[test]
 fn eval_int_expr() -> Result<(), graph::Error> {
     use direct_expr::IntExpr;
-    let expr: graph2::TypedTree<IntExpr, direct_expr::IntExprContainer> = {
+    let expr: graph2::TypedTree<IntExpr> = {
         let mut builder = graph2::Builder::new();
         let a = builder.push(IntExpr::Int(5));
         let b = builder.push(IntExpr::Int(10));
@@ -547,7 +602,7 @@ fn eval_int_expr_with_reference() -> Result<(), graph::Error> {
 
     let data = vec![5, 10, 100];
 
-    let expr: graph2::TypedTree<IntExpr, direct_expr::IntExprContainer> = {
+    let expr: graph2::TypedTree<IntExpr> = {
         let mut builder = graph2::Builder::new();
         let a = builder.push(IntExpr::IntRef(&data[0]));
         let b = builder.push(IntExpr::IntRef(&data[1]));

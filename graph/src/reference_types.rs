@@ -55,12 +55,8 @@ pub struct Visiting<'a, Container: 'a> {
 /// references into recursively-defined structures while traversing
 /// the graph.
 pub struct VisitingRef<'a, T, Container: 'a> {
-    /// The reference to be followed, relative to the last element in
-    /// `view`.
-    pub(crate) rel_pos: usize,
-
-    /// The subgraph in which the reference points.  The reference is
-    /// relative to the last item in the view.
+    /// The subgraph in which the reference points.  The referred-to
+    /// object is the last item in the view.
     pub(crate) view: &'a [Container],
     pub(crate) _phantom: PhantomData<*const T>,
 }
@@ -92,9 +88,9 @@ impl<T> StorageRef<T> {
         &'a self,
         view: &'a [Container],
     ) -> VisitingRef<'a, T, Container> {
+        let index = view.len().checked_sub(self.rel_pos).unwrap_or(0);
         VisitingRef {
-            rel_pos: self.rel_pos,
-            view,
+            view: &view[..index],
             _phantom: PhantomData,
         }
     }
@@ -109,7 +105,6 @@ impl<T> StorageRef<T> {
 impl<'a, T, Container> Clone for VisitingRef<'a, T, Container> {
     fn clone(&self) -> Self {
         VisitingRef {
-            rel_pos: self.rel_pos,
             view: self.view,
             _phantom: self._phantom,
         }

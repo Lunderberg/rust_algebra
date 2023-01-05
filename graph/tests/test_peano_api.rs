@@ -72,9 +72,9 @@ mod graph2 {
             &'a self,
             view: &'a [Container],
         ) -> VisitingRef<'a, T, Container> {
+            let index = view.len().checked_sub(self.rel_pos).unwrap_or(0);
             VisitingRef {
-                rel_pos: self.rel_pos,
-                view,
+                view: &view[..index],
                 _phantom: PhantomData,
             }
         }
@@ -157,7 +157,6 @@ mod graph2 {
         /// Returns a reference to the root node of the tree
         pub fn root(&self) -> VisitingRef<RootNodeType, Container> {
             VisitingRef {
-                rel_pos: 0,
                 view: &self.nodes,
                 _phantom: PhantomData,
             }
@@ -250,7 +249,6 @@ mod graph2 {
     }
 
     pub struct VisitingRef<'a, T, Container> {
-        rel_pos: usize,
         view: &'a [Container],
         _phantom: PhantomData<*const T>,
     }
@@ -258,7 +256,6 @@ mod graph2 {
     impl<'a, T, Container> Clone for VisitingRef<'a, T, Container> {
         fn clone(&self) -> Self {
             VisitingRef {
-                rel_pos: self.rel_pos,
                 view: self.view,
                 _phantom: self._phantom,
             }
@@ -283,23 +280,9 @@ mod graph2 {
             NodeType: RecursiveObj<'a, RefType = Storage>,
             Container: ContainerOf<NodeType>,
         {
-            let self_index = self
-                .view
-                .len()
-                .checked_sub(1)
-                .ok_or(graph::Error::EmptyExpression)?;
-
-            let index =
-                self_index
-                    .checked_sub(self.rel_pos)
-                    .ok_or(graph::Error::InvalidReference {
-                        rel_pos: self.rel_pos,
-                        subgraph_size: self.view.len(),
-                    })?;
-
-            let container: &Container = &self.view[index];
+            let container: &Container = self.view.last().ok_or(graph::Error::EmptyExpression)?;
             let node: &NodeType = container.from_container()?;
-            let view = &self.view[..=index];
+            let view = self.view;
             let live_ref = <NodeType::Family as RecursiveFamily>::storage_to_visiting(node, view);
             Ok(live_ref)
         }

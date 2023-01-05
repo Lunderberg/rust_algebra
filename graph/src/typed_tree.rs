@@ -39,6 +39,8 @@ pub trait ContainerOf<T> {
 /// consider the following structure.
 ///
 /// ```
+/// use graph_derive::recursive_graph;
+///
 /// #[recursive_graph]
 /// mod my_graph {
 ///     enum BoolExpr {
@@ -75,7 +77,6 @@ impl<RootNodeType: HasDefaultContainer, Container> TypedTree<RootNodeType, Conta
     /// Borrow the top-level node, starting a recursive visit of the graph.
     pub fn root(&self) -> VisitingRef<RootNodeType, Container> {
         VisitingRef {
-            rel_pos: 0,
             view: &self.nodes,
             _phantom: PhantomData,
         }
@@ -96,23 +97,10 @@ impl<'a, NodeType, Container> VisitingRef<'a, NodeType, Container> {
         NodeType: RecursiveObj<'a, RefType = Storage>,
         Container: ContainerOf<NodeType>,
     {
-        let self_index = self
-            .view
-            .len()
-            .checked_sub(1)
-            .ok_or(graph::Error::EmptyExpression)?;
-
-        let index = self_index
-            .checked_sub(self.rel_pos)
-            .ok_or(graph::Error::InvalidReference {
-                rel_pos: self.rel_pos,
-                subgraph_size: self.view.len(),
-            })?;
-
-        let container: &Container = &self.view[index];
+        let container: &Container = self.view.last().ok_or(graph::Error::EmptyExpression)?;
         let node: &NodeType = container.from_container()?;
-        let subview = &self.view[..=index];
-        let live_ref = NodeType::Family::storage_to_visiting(node, subview);
+        let view = self.view;
+        let live_ref = <NodeType::Family as RecursiveFamily>::storage_to_visiting(node, view);
         Ok(live_ref)
     }
 }

@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::{
-    Builder, BuilderRef, ContainedBy, ContainerOf, HasDefaultContainer, RecursiveFamily,
-    RecursiveObj, Storage, TypedTree,
+    Builder, BuilderRef, ContainerOf, HasDefaultContainer, RecursiveFamily, RecursiveObj, Storage,
+    TypedTree,
 };
 
 /// A constructor used to generate a `TypedTree<Container>`.
@@ -28,7 +28,7 @@ impl<Container> BuilderObj<Container> {
     {
         let abs_pos = self.nodes.len();
         let storage_obj = <T::Family as RecursiveFamily>::builder_to_storage(builder_obj, abs_pos);
-        let container: Container = storage_obj.to_container();
+        let container = Container::to_container(storage_obj);
         self.nodes.push(container);
         BuilderRef {
             abs_pos,

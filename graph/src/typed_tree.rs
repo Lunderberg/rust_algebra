@@ -30,14 +30,6 @@ pub trait ContainerOf<T> {
     fn from_container(&self) -> Result<&T, graph::Error>;
 }
 
-/// Inverse of `ContainerOf`, marks a node type as being stored
-/// inside a specific `Container`.  Automatically implemented in
-/// terms of `ContainerOf`.
-pub trait ContainedBy<'a, Container>: 'a {
-    fn to_container(self) -> Container;
-    fn from_container(container: &'a Container) -> Result<&'a Self, graph::Error>;
-}
-
 /// Utility trait for providing a default container.
 ///
 /// Most of the time, a tree should be contained in the enum that
@@ -77,23 +69,6 @@ pub trait ContainedBy<'a, Container>: 'a {
 /// chosen for each recursive type.
 pub trait HasDefaultContainer: Sized {
     type DefaultContainer: ContainerOf<Self>;
-}
-
-impl<
-        'a,
-        F: RecursiveFamily,
-        T: RecursiveObj<'a, Family = F, RefType = Storage>,
-        Container: ContainerOf<T>,
-    > ContainedBy<'a, Container> for T
-where
-    F: RecursiveFamily<Obj<'a, Storage> = T>,
-{
-    fn to_container(self) -> Container {
-        Container::to_container(self)
-    }
-    fn from_container(container: &'a Container) -> Result<&'a Self, graph::Error> {
-        container.from_container()
-    }
 }
 
 impl<RootNodeType: HasDefaultContainer, Container> TypedTree<RootNodeType, Container> {

@@ -112,23 +112,6 @@ mod graph2 {
         fn from_container(&self) -> Result<&T, graph::Error>;
     }
 
-    /// Inverse of `ContainerOf`, marks a node type as being stored
-    /// inside a specific `Container`.  Automatically implemented in
-    /// terms of `ContainerOf`.
-    pub trait ContainedBy<Container> {
-        fn to_container(self) -> Container;
-        fn from_container<'a>(container: &'a Container) -> Result<&'a Self, graph::Error>;
-    }
-
-    impl<T, Container: ContainerOf<T>> ContainedBy<Container> for T {
-        fn to_container(self) -> Container {
-            Container::to_container(self)
-        }
-        fn from_container<'a>(container: &'a Container) -> Result<&'a Self, graph::Error> {
-            container.from_container()
-        }
-    }
-
     /// Utility trait for providing a default container.
     ///
     /// Most of the time, a tree should be contained in the enum that
@@ -226,7 +209,7 @@ mod graph2 {
             let abs_pos = self.nodes.len();
             let storage_obj =
                 <T::Family as RecursiveFamily>::builder_to_storage(builder_obj, abs_pos);
-            let container: Container = storage_obj.to_container();
+            let container = Container::to_container(storage_obj);
             self.nodes.push(container);
             BuilderRef {
                 abs_pos,

@@ -1,7 +1,7 @@
 use std::iter::Peekable;
 use std::str::FromStr;
 
-use crate::{Element, Error, Expr, OperatorPrecedence};
+use crate::{Element, Error, Expr, OldOperatorPrecedence};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Token {
@@ -30,14 +30,14 @@ where
 }
 
 impl Token {
-    fn operator_precedence(&self) -> Option<OperatorPrecedence> {
+    fn operator_precedence(&self) -> Option<OldOperatorPrecedence> {
         use Token::*;
         match self {
             IntLiteral(_) => None,
-            Minus => Some(OperatorPrecedence::AddSub),
-            Plus => Some(OperatorPrecedence::AddSub),
-            Multiply => Some(OperatorPrecedence::MulDiv),
-            Divide => Some(OperatorPrecedence::MulDiv),
+            Minus => Some(OldOperatorPrecedence::AddSub),
+            Plus => Some(OldOperatorPrecedence::AddSub),
+            Multiply => Some(OldOperatorPrecedence::MulDiv),
+            Divide => Some(OldOperatorPrecedence::MulDiv),
             LeftParen => None,
             RightParen => None,
         }
@@ -80,7 +80,7 @@ where
     }
 
     fn expect_expr(&mut self) -> Result<(), Error> {
-        self.expect_expr_precedence(OperatorPrecedence::Expr)
+        self.expect_expr_precedence(OldOperatorPrecedence::Expr)
     }
 
     fn expect_token(&mut self, expected: Token) -> Result<(), Error> {
@@ -99,7 +99,7 @@ where
 
     fn expect_expr_precedence(
         &mut self,
-        parent_precedence: OperatorPrecedence,
+        parent_precedence: OldOperatorPrecedence,
     ) -> Result<(), Error> {
         self.tokens
             .next()

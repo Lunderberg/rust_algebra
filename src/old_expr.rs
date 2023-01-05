@@ -19,7 +19,7 @@ pub(crate) enum Element {
 }
 
 #[derive(PartialOrd, Ord, PartialEq, Eq)]
-pub(crate) enum OperatorPrecedence {
+pub(crate) enum OldOperatorPrecedence {
     Expr,
     AddSub,
     MulDiv,
@@ -46,11 +46,11 @@ impl<'a> SubExpr<'a> {
 }
 
 impl Element {
-    fn precedence(&self) -> Option<OperatorPrecedence> {
+    fn precedence(&self) -> Option<OldOperatorPrecedence> {
         use Element::*;
         match self {
-            Add(_, _) | Sub(_, _) => Some(OperatorPrecedence::AddSub),
-            Mul(_, _) | Div(_, _) => Some(OperatorPrecedence::MulDiv),
+            Add(_, _) | Sub(_, _) => Some(OldOperatorPrecedence::AddSub),
+            Mul(_, _) | Div(_, _) => Some(OldOperatorPrecedence::MulDiv),
             Int(_) => None,
         }
     }

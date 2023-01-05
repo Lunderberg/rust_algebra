@@ -1,6 +1,7 @@
+use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 
-use crate::RecursiveRefType;
+use crate::{ContainerOf, RecursiveFamily, RecursiveObj, RecursiveRefType};
 
 /// A usage annotation for objects that are being constructed.
 pub struct Builder;
@@ -116,3 +117,14 @@ impl<'a, T, Container> Clone for VisitingRef<'a, T, Container> {
 }
 
 impl<'a, T, Container> Copy for VisitingRef<'a, T, Container> {}
+
+impl<'a, NodeType, Container> Display for VisitingRef<'a, NodeType, Container>
+where
+    NodeType: RecursiveObj<'a, RefType = Storage>,
+    Container: ContainerOf<NodeType>,
+    <NodeType::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>: Display,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.borrow().unwrap())
+    }
+}

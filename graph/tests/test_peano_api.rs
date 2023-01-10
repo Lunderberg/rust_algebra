@@ -1,9 +1,7 @@
-// use graph::{GenericGraphNode, Graph, Live};
-// use graph_derive::recursive_graph;
-
 #![allow(dead_code)]
 
 mod graph2 {
+    use std::fmt::{Display, Formatter};
     use std::marker::PhantomData;
 
     ///////////////////////////////////////////////////////////
@@ -155,13 +153,24 @@ mod graph2 {
 
     impl<RootNodeType: HasDefaultContainer, Container> TypedTree<RootNodeType, Container> {
         /// Returns a reference to the root node of the tree
-        pub fn root(&self) -> VisitingRef<RootNodeType, Container> {
+        pub fn root<'a: 'b, 'b>(&'a self) -> VisitingRef<'b, RootNodeType, Container> {
             VisitingRef {
                 view: &self.nodes,
                 _phantom: PhantomData,
             }
         }
     }
+
+    // impl<'a: 'b, 'b, RootNodeType: HasDefaultContainer, Container: 'a> Display
+    //     for TypedTree<RootNodeType, Container>
+    // where
+    //     VisitingRef<'b, RootNodeType, Container>: Display,
+    //     Self: 'b,
+    // {
+    //     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+    //         write!(f, "{}", self.root())
+    //     }
+    // }
 
     /////////////////////////////////////
     ////////////// Builder //////////////
@@ -307,6 +316,17 @@ mod graph2 {
             _other: VisitingRef<'a, NodeType, OtherContainer>,
         ) -> bool {
             todo!()
+        }
+    }
+
+    impl<'a, T, Container> Display for VisitingRef<'a, T, Container>
+    where
+        T: RecursiveObj<'a, RefType = Storage>,
+        Container: ContainerOf<T>,
+        <T::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>: Display,
+    {
+        fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+            write!(f, "{}", self.borrow().unwrap())
         }
     }
 }
@@ -492,6 +512,7 @@ pub mod direct_expr {
     // }
 
     use super::graph2::*;
+    use std::fmt::{Display, Formatter};
 
     pub enum IntExpr<'a, R: RecursiveRefType + 'a = Storage> {
         Int(R::Value<'a, i64>),
@@ -549,6 +570,18 @@ pub mod direct_expr {
 
     impl<'a> HasDefaultContainer for IntExpr<'a> {
         type DefaultContainer = IntExprContainer<'a>;
+    }
+
+    impl<'a, Container: ContainerOf<IntExpr<'a>>> Display for IntExpr<'a, Visiting<'a, Container>> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            match self {
+                IntExpr::Int(val) => write!(f, "{val}"),
+                IntExpr::IntRef(external_val) => write!(f, "{external_val}"),
+                IntExpr::Add(a, b) => {
+                    write!(f, "{} + {}", a.borrow().unwrap(), b.borrow().unwrap())
+                }
+            }
+        }
     }
 }
 
@@ -655,3 +688,21 @@ fn int_equivalent_tree_not_ref_equal() {
 //     };
 //     assert!(expr1.root().structural_equals(expr2.root()));
 // }
+
+#[test]
+fn int_equivalent_tree_structurally_equal() {
+    use direct_expr::IntExpr;
+    use graph2::{Builder, TypedTree};
+
+    let expr: TypedTree<IntExpr> = {
+        let mut builder = Builder::new();
+        let a = builder.push(IntExpr::Int(5));
+        let b = builder.push(IntExpr::Int(10));
+        builder.push(IntExpr::Add(a, b));
+        builder.into()
+    };
+
+    assert_eq!(format!("{}", expr.root().borrow().unwrap()), "5 + 10");
+    assert_eq!(format!("{}", expr.root()), "5 + 10");
+    //assert_eq!(format!("{expr}"), "5 + 10");
+}

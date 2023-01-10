@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{RecursiveFamily, RecursiveObj, Storage, Visiting, VisitingRef};
+use crate::VisitingRef;
 
 /// A container for an entire tree structure.  The container must
 /// be able to represent any individual node type that may occur
@@ -80,27 +80,5 @@ impl<RootNodeType: HasDefaultContainer, Container> TypedTree<RootNodeType, Conta
             view: &self.nodes,
             _phantom: PhantomData,
         }
-    }
-}
-
-impl<'a, NodeType, Container> VisitingRef<'a, NodeType, Container> {
-    /// Recurse down a level of the graph
-    ///
-    /// When visiting a recursive graph, recursive references are
-    /// represented as `VisitingRef` instances.  Borrowing the
-    /// reference constructs an instance of the pointed-to enum, with
-    /// further recursion represented by `VisitingRef`.
-    pub fn borrow(
-        &self,
-    ) -> Result<<NodeType::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>, graph::Error>
-    where
-        NodeType: RecursiveObj<'a, RefType = Storage>,
-        Container: ContainerOf<NodeType>,
-    {
-        let container: &Container = self.view.last().ok_or(graph::Error::EmptyExpression)?;
-        let node: &NodeType = container.from_container()?;
-        let view = self.view;
-        let live_ref = <NodeType::Family as RecursiveFamily>::storage_to_visiting(node, view);
-        Ok(live_ref)
     }
 }

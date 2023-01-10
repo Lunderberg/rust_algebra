@@ -286,6 +286,28 @@ mod graph2 {
             let live_ref = <NodeType::Family as RecursiveFamily>::storage_to_visiting(node, view);
             Ok(live_ref)
         }
+
+        pub fn ref_equals<OtherContainer>(
+            &self,
+            other: VisitingRef<'a, NodeType, OtherContainer>,
+        ) -> bool {
+            fn pointer_region<N, C>(
+                visiting_ref: &VisitingRef<'_, N, C>,
+            ) -> std::ops::Range<usize> {
+                let ptr_range = visiting_ref.view.as_ptr_range();
+                let start = ptr_range.start as usize;
+                let end = ptr_range.end as usize;
+                start..end
+            }
+            pointer_region(self) == pointer_region(&other)
+        }
+
+        pub fn structural_equals<OtherContainer>(
+            &self,
+            _other: VisitingRef<'a, NodeType, OtherContainer>,
+        ) -> bool {
+            todo!()
+        }
     }
 }
 
@@ -584,3 +606,52 @@ fn eval_int_expr_with_reference() -> Result<(), graph::Error> {
 
     Ok(())
 }
+
+#[test]
+fn int_self_ref_equal() {
+    use direct_expr::IntExpr;
+    use graph2::{Builder, TypedTree};
+
+    let expr1: TypedTree<IntExpr> = {
+        let mut builder = Builder::new();
+        builder.push(IntExpr::Int(5));
+        builder.into()
+    };
+    assert!(expr1.root().ref_equals(expr1.root()));
+}
+
+#[test]
+fn int_equivalent_tree_not_ref_equal() {
+    use direct_expr::IntExpr;
+    use graph2::{Builder, TypedTree};
+
+    let expr1: TypedTree<IntExpr> = {
+        let mut builder = Builder::new();
+        builder.push(IntExpr::Int(5));
+        builder.into()
+    };
+    let expr2: TypedTree<IntExpr> = {
+        let mut builder = Builder::new();
+        builder.push(IntExpr::Int(5));
+        builder.into()
+    };
+    assert!(!expr1.root().ref_equals(expr2.root()));
+}
+
+// #[test]
+// fn int_equivalent_tree_structurally_equal() {
+//     use direct_expr::IntExpr;
+//     use graph2::{Builder, TypedTree};
+
+//     let expr1: TypedTree<IntExpr> = {
+//         let mut builder = Builder::new();
+//         builder.push(IntExpr::Int(5));
+//         builder.into()
+//     };
+//     let expr2: TypedTree<IntExpr> = {
+//         let mut builder = Builder::new();
+//         builder.push(IntExpr::Int(5));
+//         builder.into()
+//     };
+//     assert!(expr1.root().structural_equals(expr2.root()));
+// }

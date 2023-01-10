@@ -96,12 +96,13 @@ impl<T> StorageRef<T> {
     }
 }
 
-/// Implementation of Clone for any VisitingRef.  The #[derive(Clone)]
-/// macro can't be used here, because it requires that all generic
-/// parameters implement Clone.  Therefore, even though the T and
-/// Container parameters only appear as a copy-able reference and a
-/// copy-able PhantomData, the automatic implementation wouldn't be
-/// generated.
+/// Implementation of Clone for any VisitingRef.
+///
+/// The #[derive(Clone)] macro can't be used here, because it requires
+/// that all generic parameters implement Clone.  Therefore, even
+/// though the T and Container parameters only appear as a copy-able
+/// reference and a copy-able PhantomData, the automatic
+/// implementation wouldn't be generated.
 impl<'a, T, Container> Clone for VisitingRef<'a, T, Container> {
     fn clone(&self) -> Self {
         VisitingRef {
@@ -122,4 +123,33 @@ where
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.borrow().unwrap())
     }
+}
+
+impl<'a, NodeType, Container> VisitingRef<'a, NodeType, Container> {
+    /// Recurse down a level of the graph
+    ///
+    /// When visiting a recursive graph, recursive references are
+    /// represented as `VisitingRef` instances.  Borrowing the
+    /// reference constructs an instance of the pointed-to enum, with
+    /// further recursion represented by `VisitingRef`.
+    pub fn borrow(
+        &self,
+    ) -> Result<<NodeType::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>, graph::Error>
+    where
+        NodeType: RecursiveObj<'a, RefType = Storage>,
+        Container: ContainerOf<NodeType>,
+    {
+        let container: &Container = self.view.last().ok_or(graph::Error::EmptyExpression)?;
+        let node: &NodeType = container.from_container()?;
+        let view = self.view;
+        let live_ref = <NodeType::Family as RecursiveFamily>::storage_to_visiting(node, view);
+        Ok(live_ref)
+    }
+
+    // pub fn equivalent_structure<OtherContainer>(
+    //     &self,
+    //     other: VisitingRef<'a, NodeType, OtherContainer>,
+    // ) -> bool {
+    //     todo!()
+    // }
 }

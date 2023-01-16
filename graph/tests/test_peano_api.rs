@@ -1,5 +1,21 @@
 #![allow(dead_code)]
 
+/// Testing ground for API changes, before implementing all the
+/// derivation macros.
+///
+/// - `implied_bounds`: https://github.com/rust-lang/rust/issues/44491
+///
+///   May improve all the `Container` bounds floating around.
+///
+/// - `trait_alias`: https://github.com/rust-lang/rust/issues/41517
+///
+///   May be used similar to `implied_bounds`, since the trait aliases
+///   include any bounds on the generics they use.
+///
+/// - `provide_any`: https://github.com/rust-lang/rust/issues/96024
+///
+///   May replace the `TryAsRef` trait.  Depends on whether it
+///   supports non-static lifetimes.
 use graph2::TryAsRef;
 
 mod graph2 {
@@ -58,22 +74,6 @@ mod graph2 {
 
     pub trait VisitingObj<'a: 'b, 'b, Container: 'a>: 'a {
         type Family: RecursiveFamily<'a, Visiting<'b, Container> = Self>;
-    }
-
-    /// Exposes a type `T` as being potentially stored in a container
-    /// `Container`.
-    ///
-    /// This is effectively the same as `Container: From<T> +
-    /// TryInto<T>`, and may be replaced in the future, if that works
-    /// with type inference and doesn't require extra bounds to be
-    /// specified on the user side.
-    ///
-    /// - `trait_alias`: https://github.com/rust-lang/rust/issues/41517
-    /// - `implied_bounds`: https://github.com/rust-lang/rust/issues/44491
-    /// - `provide_any`: https://github.com/rust-lang/rust/issues/96024
-    pub trait ContainerOf<T> {
-        fn to_container(val: T) -> Self;
-        fn from_container(&self) -> Result<&T, graph::Error>;
     }
 
     /////////////////////////////////////
@@ -366,17 +366,6 @@ pub mod peano {
             }
         }
     }
-
-    impl<'a> ContainerOf<Number<'a, 'a, Storage>> for NumberContainer<'a> {
-        fn to_container(val: Number<'a, 'a, Storage>) -> Self {
-            NumberContainer::Number(val)
-        }
-        fn from_container(&self) -> Result<&Number<'a, 'a, Storage>, graph::Error> {
-            match self {
-                NumberContainer::Number(val) => Ok(val),
-            }
-        }
-    }
 }
 
 impl<'a, Container: From<peano::Number<'a, 'a>>>
@@ -547,17 +536,6 @@ pub mod direct_expr {
     impl<'a> TryAsRef<IntExpr<'a, 'a, Storage>> for IntExprContainer<'a> {
         type Error = graph::Error;
         fn try_as_ref(&self) -> Result<&IntExpr<'a, 'a, Storage>, Self::Error> {
-            match self {
-                IntExprContainer::IntExpr(val) => Ok(val),
-            }
-        }
-    }
-
-    impl<'a> ContainerOf<IntExpr<'a, 'a, Storage>> for IntExprContainer<'a> {
-        fn to_container(val: IntExpr<'a, 'a, Storage>) -> Self {
-            IntExprContainer::IntExpr(val)
-        }
-        fn from_container(&self) -> Result<&IntExpr<'a, 'a, Storage>, graph::Error> {
             match self {
                 IntExprContainer::IntExpr(val) => Ok(val),
             }

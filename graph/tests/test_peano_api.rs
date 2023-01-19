@@ -166,7 +166,7 @@ mod graph2 {
     impl<'a, Family: RecursiveFamily<'a>, Container: 'a> Display for TypedTree<'a, Family, Container>
     where
         for<'b> Family::Visiting<'b, Container>: Display,
-        Container: TryAsRef<Family::Storage, Error = graph::Error>,
+        Container: TryAsRef<Family::Storage>,
     {
         fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
             write!(f, "{}", self.root())
@@ -294,6 +294,10 @@ mod graph2 {
     }
 
     impl<'a: 'b, 'b, Family: RecursiveFamily<'a>, Container> VisitingRef<'a, 'b, Family, Container> {
+        // TODO: Maybe a utility trait that is implemented whenever
+        // there are TryAsRef implementations for all reachable
+        // recursive types?  Repeating `where Container:
+        // TryAsRef<...>` for all types is rather tedious.
         pub fn borrow(self) -> Family::Visiting<'b, Container>
         where
             Container: TryAsRef<Family::Storage>,
@@ -342,7 +346,7 @@ mod graph2 {
         for VisitingRef<'a, 'b, Family, Container>
     where
         Family::Visiting<'b, Container>: Display,
-        Container: TryAsRef<Family::Storage, Error = graph::Error>,
+        Container: TryAsRef<Family::Storage>,
     {
         fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
             write!(f, "{}", self.borrow())
@@ -457,7 +461,7 @@ impl<'a, Container: From<peano::Number<'a, 'a>>>
     }
 }
 
-impl<'a: 'b, 'b, Container: TryAsRef<peano::Number<'a, 'a>, Error = graph::Error>>
+impl<'a: 'b, 'b, Container: TryAsRef<peano::Number<'a, 'a>>>
     peano::Number<'a, 'b, graph2::Visiting<'a, Container>>
 {
     fn value(&self) -> usize {
@@ -553,12 +557,20 @@ fn call_instance_method() -> Result<(), graph::Error> {
     Ok(())
 }
 
-pub mod direct_expr {
+pub mod expr {
     // Initial definition
-    // enum IntExpr<'a> {
-    //     Int(i64),
-    //     IntRef(&'a i64),
-    //     Add(IntExpr, IntExpr),
+    // mod expr {
+    //     enum IntExpr<'a> {
+    //         Int(i64),
+    //         IntRef(&'a i64),
+    //         Add(IntExpr, IntExpr),
+    //         Floor(FloatExpr),
+    //     }
+    //     enum FloatExpr {
+    //         Float(f64),
+    //         Add(FloatExpr,FloatExpr),
+    //         Cast(IntExpr),
+    //     }
     // }
 
     use super::graph2::*;
@@ -568,16 +580,25 @@ pub mod direct_expr {
         Int(R::Value<'b, i64>),
         IntRef(R::Value<'b, &'b i64>),
         Add(R::Ref<'b, IntExprFamily>, R::Ref<'b, IntExprFamily>),
+        Floor(R::Ref<'b, FloatExprFamily>),
+    }
+
+    pub enum FloatExpr<'a: 'b, 'b, R: RecursiveRefType<'a> = Storage> {
+        Float(R::Value<'b, f64>),
+        Add(R::Ref<'b, FloatExprFamily>, R::Ref<'b, FloatExprFamily>),
+        Cast(R::Ref<'b, IntExprFamily>),
     }
 
     pub struct IntExprFamily;
+
+    pub struct FloatExprFamily;
 
     impl<'a> RecursiveFamily<'a> for IntExprFamily {
         type Builder = IntExpr<'a, 'a, BuilderRefType>;
 
         type Storage = IntExpr<'a, 'a, Storage>;
 
-        type Container = IntExprContainer<'a>;
+        type Container = ExprContainer<'a>;
 
         type Visiting<'b, Container:'a> = IntExpr<'a, 'b, Visiting<'a, Container>> where 'a:'b;
 
@@ -586,6 +607,7 @@ pub mod direct_expr {
                 IntExpr::Int(val) => IntExpr::Int(val),
                 IntExpr::IntRef(val) => IntExpr::IntRef(val),
                 IntExpr::Add(a, b) => IntExpr::Add(a.to_storage(new_pos), b.to_storage(new_pos)),
+                IntExpr::Floor(f) => IntExpr::Floor(f.to_storage(new_pos)),
             }
         }
 
@@ -600,25 +622,87 @@ pub mod direct_expr {
                 IntExpr::Int(val) => IntExpr::Int(val),
                 IntExpr::IntRef(val) => IntExpr::IntRef(val),
                 IntExpr::Add(a, b) => IntExpr::Add(a.to_visiting(view), b.to_visiting(view)),
+                IntExpr::Floor(f) => IntExpr::Floor(f.to_visiting(view)),
             }
         }
     }
 
-    pub enum IntExprContainer<'a> {
-        IntExpr(IntExpr<'a, 'a, Storage>),
-    }
+    impl<'a> RecursiveFamily<'a> for FloatExprFamily {
+        type Builder = FloatExpr<'a, 'a, BuilderRefType>;
 
-    impl<'a> From<IntExpr<'a, 'a, Storage>> for IntExprContainer<'a> {
-        fn from(val: IntExpr<'a, 'a, Storage>) -> Self {
-            IntExprContainer::IntExpr(val)
+        type Storage = FloatExpr<'a, 'a, Storage>;
+
+        type Container = ExprContainer<'a>;
+
+        type Visiting<'b, Container:'a> = FloatExpr<'a, 'b, Visiting<'a, Container>> where 'a:'b;
+
+        fn builder_to_storage(builder_obj: Self::Builder, new_pos: usize) -> Self::Storage {
+            match builder_obj {
+                FloatExpr::Float(val) => FloatExpr::Float(val),
+                FloatExpr::Add(a, b) => {
+                    FloatExpr::Add(a.to_storage(new_pos), b.to_storage(new_pos))
+                }
+                FloatExpr::Cast(i) => FloatExpr::Cast(i.to_storage(new_pos)),
+            }
+        }
+
+        fn storage_to_visiting<'b, Container: 'a>(
+            storage_obj: &'b Self::Storage,
+            view: &'b [Container],
+        ) -> Self::Visiting<'b, Container>
+        where
+            'a: 'b,
+        {
+            match storage_obj {
+                FloatExpr::Float(val) => FloatExpr::Float(val),
+                FloatExpr::Add(a, b) => FloatExpr::Add(a.to_visiting(view), b.to_visiting(view)),
+                FloatExpr::Cast(i) => FloatExpr::Cast(i.to_visiting(view)),
+            }
         }
     }
 
-    impl<'a> TryAsRef<IntExpr<'a, 'a, Storage>> for IntExprContainer<'a> {
+    // Macro would probably generate IntExprContainer and
+    // FloatExprContainer separately, but that would be inconvenient
+    // to write out for the API testing
+    pub enum ExprContainer<'a> {
+        IntExpr(IntExpr<'a, 'a, Storage>),
+        FloatExpr(FloatExpr<'a, 'a, Storage>),
+    }
+
+    impl<'a> From<IntExpr<'a, 'a, Storage>> for ExprContainer<'a> {
+        fn from(val: IntExpr<'a, 'a, Storage>) -> Self {
+            ExprContainer::IntExpr(val)
+        }
+    }
+
+    impl<'a> From<FloatExpr<'a, 'a, Storage>> for ExprContainer<'a> {
+        fn from(val: FloatExpr<'a, 'a, Storage>) -> Self {
+            ExprContainer::FloatExpr(val)
+        }
+    }
+
+    impl<'a> TryAsRef<IntExpr<'a, 'a, Storage>> for ExprContainer<'a> {
         type Error = graph::Error;
         fn try_as_ref(&self) -> Result<&IntExpr<'a, 'a, Storage>, Self::Error> {
             match self {
-                IntExprContainer::IntExpr(val) => Ok(val),
+                ExprContainer::IntExpr(val) => Ok(val),
+                ExprContainer::FloatExpr(_) => Err(graph::Error::IncorrectType {
+                    expected: "IntExpr",
+                    actual: "FloatExpr",
+                }),
+            }
+        }
+    }
+
+    impl<'a> TryAsRef<FloatExpr<'a, 'a>> for ExprContainer<'a> {
+        type Error = graph::Error;
+        fn try_as_ref(&self) -> Result<&FloatExpr<'a, 'a>, Self::Error> {
+            match self {
+                ExprContainer::FloatExpr(val) => Ok(val),
+                ExprContainer::IntExpr(_) => Err(graph::Error::IncorrectType {
+                    expected: "FloatExpr",
+                    actual: "IntExpr",
+                }),
             }
         }
     }
@@ -627,8 +711,14 @@ pub mod direct_expr {
         type Family = IntExprFamily;
     }
 
-    impl<'a: 'b, 'b, Container: TryAsRef<IntExpr<'a, 'a>, Error = graph::Error>> Display
-        for IntExpr<'a, 'b, Visiting<'a, Container>>
+    impl<'a> BuilderObj<'a> for FloatExpr<'a, 'a, BuilderRefType> {
+        type Family = FloatExprFamily;
+    }
+
+    impl<'a: 'b, 'b, Container> Display for IntExpr<'a, 'b, Visiting<'a, Container>>
+    where
+        Container: TryAsRef<IntExpr<'a, 'a>>,
+        Container: TryAsRef<FloatExpr<'a, 'a>>,
     {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
@@ -637,55 +727,134 @@ pub mod direct_expr {
                 IntExpr::Add(a, b) => {
                     write!(f, "{} + {}", a.borrow(), b.borrow())
                 }
+                IntExpr::Floor(a) => {
+                    write!(f, "⌊{}⌋", a.borrow())
+                }
             }
         }
     }
 
-    impl<'a: 'b, 'b, Container: TryAsRef<IntExpr<'a, 'a>>> std::cmp::PartialEq
-        for IntExpr<'a, 'b, Visiting<'a, Container>>
+    impl<'a: 'b, 'b, Container> Display for FloatExpr<'a, 'b, Visiting<'a, Container>>
+    where
+        Container: TryAsRef<IntExpr<'a, 'a>>,
+        Container: TryAsRef<FloatExpr<'a, 'a>>,
+    {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            match self {
+                FloatExpr::Float(val) => write!(f, "{val}"),
+                FloatExpr::Add(a, b) => {
+                    write!(f, "{} + {}", a.borrow(), b.borrow())
+                }
+                FloatExpr::Cast(val) => {
+                    write!(f, "float({})", val.borrow())
+                }
+            }
+        }
+    }
+
+    impl<'a: 'b, 'b, Container> std::cmp::PartialEq for IntExpr<'a, 'b, Visiting<'a, Container>>
+    where
+        Container: TryAsRef<IntExpr<'a, 'a>>,
+        Container: TryAsRef<FloatExpr<'a, 'a>>,
     {
         fn eq(&self, rhs: &Self) -> bool {
             match (self, rhs) {
                 (IntExpr::Int(a), IntExpr::Int(b)) => a == b,
                 (IntExpr::IntRef(a), IntExpr::IntRef(b)) => a == b,
                 (IntExpr::Add(a, b), IntExpr::Add(c, d)) => (a == c) && (b == d),
+                (IntExpr::Floor(a), IntExpr::Floor(b)) => a == b,
                 _ => false,
             }
         }
     }
 
-    impl<'a: 'b, 'b, Container: TryAsRef<IntExpr<'a, 'a>>> std::hash::Hash
-        for IntExpr<'a, 'b, Visiting<'a, Container>>
+    impl<'a: 'b, 'b, Container> std::cmp::PartialEq for FloatExpr<'a, 'b, Visiting<'a, Container>>
+    where
+        Container: TryAsRef<IntExpr<'a, 'a>>,
+        Container: TryAsRef<FloatExpr<'a, 'a>>,
     {
-        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-            std::mem::discriminant(self).hash(state);
-            match self {
-                IntExpr::Int(a) => a.hash(state),
-                IntExpr::IntRef(a) => a.hash(state),
-                IntExpr::Add(a, b) => {
-                    a.hash(state);
-                    b.hash(state);
-                }
+        fn eq(&self, rhs: &Self) -> bool {
+            match (self, rhs) {
+                (FloatExpr::Float(a), FloatExpr::Float(b)) => a == b,
+                (FloatExpr::Add(a, b), FloatExpr::Add(c, d)) => (a == c) && (b == d),
+                (FloatExpr::Cast(a), FloatExpr::Cast(b)) => a == b,
+                _ => false,
             }
         }
     }
+
+    // impl<'a: 'b, 'b, Container> std::hash::Hash for IntExpr<'a, 'b, Visiting<'a, Container>>
+    // where
+    //     Container: TryAsRef<IntExpr<'a, 'a>>,
+    //     Container: TryAsRef<FloatExpr<'a, 'a>>,
+    //     f64: std::hash::Hash,
+    // {
+    //     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    //         std::mem::discriminant(self).hash(state);
+    //         match self {
+    //             IntExpr::Int(a) => a.hash(state),
+    //             IntExpr::IntRef(a) => a.hash(state),
+    //             IntExpr::Add(a, b) => {
+    //                 a.hash(state);
+    //                 b.hash(state);
+    //             }
+    //             IntExpr::Floor(a) => a.hash(state),
+    //         }
+    //     }
+    // }
+
+    // impl<'a: 'b, 'b, Container> std::hash::Hash for FloatExpr<'a, 'b, Visiting<'a, Container>>
+    // where
+    //     Container: TryAsRef<IntExpr<'a, 'a>>,
+    //     Container: TryAsRef<FloatExpr<'a, 'a>>,
+    //     f64: std::hash::Hash,
+    // {
+    //     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    //         std::mem::discriminant(self).hash(state);
+    //         match self {
+    //             FloatExpr::Float(a) => a.hash(state),
+    //             FloatExpr::Add(a, b) => {
+    //                 a.hash(state);
+    //                 b.hash(state);
+    //             }
+    //             FloatExpr::Cast(a) => a.hash(state),
+    //         }
+    //     }
+    // }
 }
 
-impl<'a: 'b, 'b, Container: TryAsRef<direct_expr::IntExpr<'a, 'a>, Error = graph::Error>>
-    direct_expr::IntExpr<'a, 'b, graph2::Visiting<'a, Container>>
+impl<'a: 'b, 'b, Container> expr::IntExpr<'a, 'b, graph2::Visiting<'a, Container>>
+where
+    Container: TryAsRef<expr::IntExpr<'a, 'a>>,
+    Container: TryAsRef<expr::FloatExpr<'a, 'a>>,
 {
     fn eval(self) -> i64 {
         match self {
             Self::Int(val) => *val,
             Self::IntRef(val) => **val,
             Self::Add(a, b) => a.borrow().eval() + b.borrow().eval(),
+            Self::Floor(a) => a.borrow().eval().floor() as i64,
+        }
+    }
+}
+
+impl<'a: 'b, 'b, Container> expr::FloatExpr<'a, 'b, graph2::Visiting<'a, Container>>
+where
+    Container: TryAsRef<expr::IntExpr<'a, 'a>>,
+    Container: TryAsRef<expr::FloatExpr<'a, 'a>>,
+{
+    fn eval(self) -> f64 {
+        match self {
+            Self::Float(val) => *val,
+            Self::Add(a, b) => a.borrow().eval() + b.borrow().eval(),
+            Self::Cast(a) => a.borrow().eval() as f64,
         }
     }
 }
 
 #[test]
 fn eval_int_expr() -> Result<(), graph::Error> {
-    use direct_expr::IntExpr;
+    use expr::IntExpr;
     let expr = TypedTree::build(|builder| {
         let a = builder.push(IntExpr::Int(5));
         let b = builder.push(IntExpr::Int(10));
@@ -703,7 +872,7 @@ fn eval_int_expr() -> Result<(), graph::Error> {
 
 #[test]
 fn eval_int_expr_with_reference() -> Result<(), graph::Error> {
-    use direct_expr::IntExpr;
+    use expr::IntExpr;
 
     let data = vec![5, 10, 100];
 
@@ -724,7 +893,7 @@ fn eval_int_expr_with_reference() -> Result<(), graph::Error> {
 
 #[test]
 fn int_self_ref_equal() {
-    use direct_expr::IntExpr;
+    use expr::IntExpr;
 
     let expr1 = TypedTree::build(|builder| builder.push(IntExpr::Int(5)));
 
@@ -733,7 +902,7 @@ fn int_self_ref_equal() {
 
 #[test]
 fn int_equivalent_tree_not_ref_equal() {
-    use direct_expr::IntExpr;
+    use expr::IntExpr;
 
     let expr1 = TypedTree::build(|builder| builder.push(IntExpr::Int(5)));
     let expr2 = TypedTree::build(|builder| builder.push(IntExpr::Int(5)));
@@ -743,7 +912,7 @@ fn int_equivalent_tree_not_ref_equal() {
 
 #[test]
 fn int_equivalent_tree_structurally_equal() {
-    use direct_expr::{IntExpr, IntExprFamily};
+    use expr::{IntExpr, IntExprFamily};
     use graph2::{Builder, TypedTree};
 
     let expr1: TypedTree<IntExprFamily> = {
@@ -761,7 +930,7 @@ fn int_equivalent_tree_structurally_equal() {
 
 #[test]
 fn display_() {
-    use direct_expr::IntExpr;
+    use expr::IntExpr;
 
     let expr = TypedTree::build(|builder| {
         let a = builder.push(IntExpr::Int(5));
@@ -772,4 +941,24 @@ fn display_() {
     assert_eq!(format!("{}", expr.root().borrow()), "5 + 10");
     assert_eq!(format!("{}", expr.root()), "5 + 10");
     assert_eq!(format!("{expr}"), "5 + 10");
+}
+
+#[test]
+fn mixed_type_expression() {
+    use expr::{FloatExpr, IntExpr};
+
+    let data = vec![5, 10, 100];
+
+    let expr = TypedTree::build(|builder| {
+        let a = builder.push(FloatExpr::Float(5.6));
+        let b = builder.push(FloatExpr::Float(10.6));
+        let c = builder.push(FloatExpr::Add(a, b));
+        let d = builder.push(IntExpr::Floor(c));
+        let e = builder.push(IntExpr::IntRef(&data[2]));
+        builder.push(IntExpr::Add(d, e))
+    });
+
+    let value: i64 = expr.root().borrow().eval();
+
+    assert_eq!(value, 116);
 }

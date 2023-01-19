@@ -62,7 +62,7 @@ mod graph2 {
     }
 
     pub trait TryAsRef<T> {
-        type Error;
+        type Error: std::fmt::Debug;
         fn try_as_ref(&self) -> Result<&T, Self::Error>;
     }
 
@@ -294,23 +294,47 @@ mod graph2 {
     }
 
     impl<'a: 'b, 'b, Family: RecursiveFamily<'a>, Container> VisitingRef<'a, 'b, Family, Container> {
-        pub fn borrow(self) -> Result<Family::Visiting<'b, Container>, graph::Error>
+        pub fn borrow(self) -> Family::Visiting<'b, Container>
         where
-            Container: TryAsRef<Family::Storage, Error = graph::Error>,
+            Container: TryAsRef<Family::Storage>,
         {
-            let container: &Container = self.view.last().ok_or(graph::Error::EmptyExpression)?;
-            let node: &Family::Storage = container.try_as_ref()?;
+            let container: &Container = self
+                .view
+                .last()
+                .ok_or(graph::Error::EmptyExpression)
+                .expect("Malformed tree found with empty node");
+            let node: &Family::Storage = container
+                .try_as_ref()
+                .expect("Incorrect type found when visiting tree");
             let view = self.view;
             let live_ref = Family::storage_to_visiting(node, view);
-            Ok(live_ref)
+            live_ref
         }
 
         pub fn ref_equals(&self, other: Self) -> bool {
             self.view.as_ptr_range() == other.view.as_ptr_range()
         }
+    }
 
-        pub fn structural_equals(&self, _other: Self) -> bool {
-            todo!()
+    impl<'a: 'b, 'b, Family: RecursiveFamily<'a>, Container: 'a> std::cmp::PartialEq
+        for VisitingRef<'a, 'b, Family, Container>
+    where
+        Container: TryAsRef<Family::Storage>,
+        Family::Visiting<'b, Container>: PartialEq,
+    {
+        fn eq(&self, rhs: &Self) -> bool {
+            self.ref_equals(*rhs) || (self.borrow() == rhs.borrow())
+        }
+    }
+
+    impl<'a: 'b, 'b, Family: RecursiveFamily<'a>, Container: 'a> std::hash::Hash
+        for VisitingRef<'a, 'b, Family, Container>
+    where
+        Container: TryAsRef<Family::Storage>,
+        Family::Visiting<'b, Container>: std::hash::Hash,
+    {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            self.borrow().hash(state)
         }
     }
 
@@ -321,7 +345,7 @@ mod graph2 {
         Container: TryAsRef<Family::Storage, Error = graph::Error>,
     {
         fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-            write!(f, "{}", self.borrow().unwrap())
+            write!(f, "{}", self.borrow())
         }
     }
 }
@@ -394,6 +418,30 @@ pub mod peano {
             }
         }
     }
+
+    impl<'a: 'b, 'b, Container: TryAsRef<Number<'a, 'a>>> std::cmp::PartialEq
+        for Number<'a, 'b, Visiting<'a, Container>>
+    {
+        fn eq(&self, rhs: &Self) -> bool {
+            match (self, rhs) {
+                (Number::Zero, Number::Zero) => true,
+                (Number::Successor(a), Number::Successor(b)) => a == b,
+                _ => false,
+            }
+        }
+    }
+
+    impl<'a: 'b, 'b, Container: TryAsRef<Number<'a, 'a>>> std::hash::Hash
+        for Number<'a, 'b, Visiting<'a, Container>>
+    {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            std::mem::discriminant(self).hash(state);
+            match self {
+                Number::Zero => {}
+                Number::Successor(prev) => prev.hash(state),
+            }
+        }
+    }
 }
 
 impl<'a, Container: From<peano::Number<'a, 'a>>>
@@ -416,94 +464,94 @@ impl<'a: 'b, 'b, Container: TryAsRef<peano::Number<'a, 'a>, Error = graph::Error
         match self {
             peano::Number::Zero => 0,
             peano::Number::Successor(live_ref) => {
-                let num = live_ref.borrow().unwrap();
+                let num = live_ref.borrow();
                 num.value() + 1
             }
         }
     }
 }
 
-// #[test]
-// fn construct_annotated() {
-//     let _three: graph2::TypedTree<peano::NumberFamily, peano::NumberContainer> = {
-//         let mut builder = graph2::Builder::<peano::NumberContainer>::new();
-//         let mut a: graph2::BuilderRef<peano::NumberFamily> =
-//             builder.push::<peano::Number<graph2::BuilderRefType>>(
-//                 peano::Number::<graph2::BuilderRefType>::Zero,
-//             );
-//         for _ in 0..3 {
-//             a = builder.push::<peano::Number<graph2::BuilderRefType>>(peano::Number::<
-//                 graph2::BuilderRefType,
-//             >::Successor(a));
-//         }
-//         builder.finalize(a)
-//     };
-// }
+#[test]
+fn construct_annotated() {
+    let _three: graph2::TypedTree<peano::NumberFamily, peano::NumberContainer> = {
+        let mut builder = graph2::Builder::<peano::NumberContainer>::new();
+        let mut a: graph2::BuilderRef<peano::NumberFamily> =
+            builder.push::<peano::Number<graph2::BuilderRefType>>(
+                peano::Number::<graph2::BuilderRefType>::Zero,
+            );
+        for _ in 0..3 {
+            a = builder.push::<peano::Number<graph2::BuilderRefType>>(peano::Number::<
+                graph2::BuilderRefType,
+            >::Successor(a));
+        }
+        builder.finalize(a)
+    };
+}
 
-// #[test]
-// fn construct_unannotated() {
-//     let _three: graph2::TypedTree<peano::NumberFamily, peano::NumberContainer> = {
-//         let mut builder = graph2::Builder::new();
-//         let mut a = builder.push(peano::Number::Zero);
+#[test]
+fn construct_unannotated() {
+    let _three: graph2::TypedTree<peano::NumberFamily, peano::NumberContainer> = {
+        let mut builder = graph2::Builder::new();
+        let mut a = builder.push(peano::Number::Zero);
 
-//         for _ in 0..3 {
-//             a = builder.push(peano::Number::Successor(a));
-//         }
-//         builder.finalize(a)
-//     };
-// }
+        for _ in 0..3 {
+            a = builder.push(peano::Number::Successor(a));
+        }
+        builder.finalize(a)
+    };
+}
 
-// #[test]
-// fn call_static_method() {
-//     let _three = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(3);
-// }
+#[test]
+fn call_static_method() {
+    let _three = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(3);
+}
 
-// #[test]
-// fn match_root() -> Result<(), graph::Error> {
-//     let zero = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(0);
-//     let one = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(1);
+#[test]
+fn match_root() -> Result<(), graph::Error> {
+    let zero = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(0);
+    let one = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(1);
 
-//     use peano::Number;
-//     assert!(matches!(zero.root().borrow()?, Number::Zero));
-//     assert!(matches!(one.root().borrow()?, Number::Successor(_)));
+    use peano::Number;
+    assert!(matches!(zero.root().borrow(), Number::Zero));
+    assert!(matches!(one.root().borrow(), Number::Successor(_)));
 
-//     Ok(())
-// }
+    Ok(())
+}
 
-// #[test]
-// fn match_live_ref() -> Result<(), graph::Error> {
-//     let three = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(3);
+#[test]
+fn match_live_ref() -> Result<(), graph::Error> {
+    let three = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(3);
 
-//     use peano::Number;
-//     let value = match three.root().borrow()? {
-//         Number::Zero => 0,
-//         Number::Successor(a) => match a.borrow()? {
-//             Number::Zero => 1,
-//             Number::Successor(b) => match b.borrow()? {
-//                 Number::Zero => 2,
-//                 Number::Successor(c) => match c.borrow()? {
-//                     Number::Zero => 3,
-//                     Number::Successor(d) => match d.borrow()? {
-//                         Number::Zero => 4,
-//                         Number::Successor(_) => panic!("Recursed too var in match"),
-//                     },
-//                 },
-//             },
-//         },
-//     };
+    use peano::Number;
+    let value = match three.root().borrow() {
+        Number::Zero => 0,
+        Number::Successor(a) => match a.borrow() {
+            Number::Zero => 1,
+            Number::Successor(b) => match b.borrow() {
+                Number::Zero => 2,
+                Number::Successor(c) => match c.borrow() {
+                    Number::Zero => 3,
+                    Number::Successor(d) => match d.borrow() {
+                        Number::Zero => 4,
+                        Number::Successor(_) => panic!("Recursed too var in match"),
+                    },
+                },
+            },
+        },
+    };
 
-//     assert_eq!(value, 3);
+    assert_eq!(value, 3);
 
-//     Ok(())
-// }
+    Ok(())
+}
 
-// #[test]
-// fn call_instance_method() -> Result<(), graph::Error> {
-//     let three = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(3);
-//     let value = three.root().borrow()?.value();
-//     assert_eq!(value, 3);
-//     Ok(())
-// }
+#[test]
+fn call_instance_method() -> Result<(), graph::Error> {
+    let three = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(3);
+    let value = three.root().borrow().value();
+    assert_eq!(value, 3);
+    Ok(())
+}
 
 pub mod direct_expr {
     // Initial definition
@@ -587,7 +635,36 @@ pub mod direct_expr {
                 IntExpr::Int(val) => write!(f, "{val}"),
                 IntExpr::IntRef(external_val) => write!(f, "{external_val}"),
                 IntExpr::Add(a, b) => {
-                    write!(f, "{} + {}", a.borrow().unwrap(), b.borrow().unwrap())
+                    write!(f, "{} + {}", a.borrow(), b.borrow())
+                }
+            }
+        }
+    }
+
+    impl<'a: 'b, 'b, Container: TryAsRef<IntExpr<'a, 'a>>> std::cmp::PartialEq
+        for IntExpr<'a, 'b, Visiting<'a, Container>>
+    {
+        fn eq(&self, rhs: &Self) -> bool {
+            match (self, rhs) {
+                (IntExpr::Int(a), IntExpr::Int(b)) => a == b,
+                (IntExpr::IntRef(a), IntExpr::IntRef(b)) => a == b,
+                (IntExpr::Add(a, b), IntExpr::Add(c, d)) => (a == c) && (b == d),
+                _ => false,
+            }
+        }
+    }
+
+    impl<'a: 'b, 'b, Container: TryAsRef<IntExpr<'a, 'a>>> std::hash::Hash
+        for IntExpr<'a, 'b, Visiting<'a, Container>>
+    {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            std::mem::discriminant(self).hash(state);
+            match self {
+                IntExpr::Int(a) => a.hash(state),
+                IntExpr::IntRef(a) => a.hash(state),
+                IntExpr::Add(a, b) => {
+                    a.hash(state);
+                    b.hash(state);
                 }
             }
         }
@@ -601,7 +678,7 @@ impl<'a: 'b, 'b, Container: TryAsRef<direct_expr::IntExpr<'a, 'a>, Error = graph
         match self {
             Self::Int(val) => *val,
             Self::IntRef(val) => **val,
-            Self::Add(a, b) => a.borrow().unwrap().eval() + b.borrow().unwrap().eval(),
+            Self::Add(a, b) => a.borrow().eval() + b.borrow().eval(),
         }
     }
 }
@@ -617,7 +694,7 @@ fn eval_int_expr() -> Result<(), graph::Error> {
         builder.push(IntExpr::Add(c, d))
     });
 
-    let value: i64 = expr.root().borrow()?.eval();
+    let value: i64 = expr.root().borrow().eval();
 
     assert_eq!(value, 115);
 
@@ -638,7 +715,7 @@ fn eval_int_expr_with_reference() -> Result<(), graph::Error> {
         builder.push(IntExpr::Add(c, d))
     });
 
-    let value: i64 = expr.root().borrow()?.eval();
+    let value: i64 = expr.root().borrow().eval();
 
     assert_eq!(value, 115);
 
@@ -664,23 +741,23 @@ fn int_equivalent_tree_not_ref_equal() {
     assert!(!expr1.root().ref_equals(expr2.root()));
 }
 
-// #[test]
-// fn int_equivalent_tree_structurally_equal() {
-//     use direct_expr::{IntExprFamily, IntExpr};
-//     use graph2::{Builder, TypedTree};
+#[test]
+fn int_equivalent_tree_structurally_equal() {
+    use direct_expr::{IntExpr, IntExprFamily};
+    use graph2::{Builder, TypedTree};
 
-//     let expr1: TypedTree<IntExprFamily> = {
-//         let mut builder = Builder::new();
-//         let a = builder.push(IntExpr::Int(5));
-//         builder.finalize(a)
-//     };
-//     let expr2: TypedTree<IntExprFamily> = {
-//         let mut builder = Builder::new();
-//         let a = builder.push(IntExpr::Int(5));
-//         builder.finalize(a)
-//     };
-//     assert!(expr1.root().structural_equals(expr2.root()));
-// }
+    let expr1: TypedTree<IntExprFamily> = {
+        let mut builder = Builder::new();
+        let a = builder.push(IntExpr::Int(5));
+        builder.finalize(a)
+    };
+    let expr2: TypedTree<IntExprFamily> = {
+        let mut builder = Builder::new();
+        let a = builder.push(IntExpr::Int(5));
+        builder.finalize(a)
+    };
+    assert!(expr1.root() == expr2.root());
+}
 
 #[test]
 fn display_() {
@@ -692,7 +769,7 @@ fn display_() {
         builder.push(IntExpr::Add(a, b))
     });
 
-    assert_eq!(format!("{}", expr.root().borrow().unwrap()), "5 + 10");
+    assert_eq!(format!("{}", expr.root().borrow()), "5 + 10");
     assert_eq!(format!("{}", expr.root()), "5 + 10");
     assert_eq!(format!("{expr}"), "5 + 10");
 }

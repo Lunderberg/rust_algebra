@@ -65,9 +65,9 @@ mod graph2 {
             Container: 'b;
     }
 
-    pub trait TryAsRef<'a, T> {
+    pub trait TryAsRef<T> {
         type Error: std::fmt::Debug;
-        fn try_as_ref(&'a self) -> Result<&'a T, Self::Error>;
+        fn try_as_ref(&self) -> Result<&T, Self::Error>;
     }
 
     pub trait BuilderObj<'a>: 'a {
@@ -160,7 +160,7 @@ mod graph2 {
     impl<'a, Family: RecursiveFamily + 'a, Container: 'a> Display for TypedTree<'a, Family, Container>
     where
         for<'b> Family::Visiting<'b, Container>: Display,
-        for<'b> Container: TryAsRef<'b, Family::Storage<'a>>,
+        Container: TryAsRef<Family::Storage<'a>>,
     {
         fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
             write!(f, "{}", self.root())
@@ -294,7 +294,7 @@ mod graph2 {
         // TryAsRef<...>` for all types is rather tedious.
         pub fn borrow(self) -> Family::Visiting<'b, Container>
         where
-            Container: TryAsRef<'b, Family::Storage<'a>>,
+            Container: TryAsRef<Family::Storage<'a>>,
         {
             let container: &Container = self
                 .view
@@ -317,7 +317,7 @@ mod graph2 {
     impl<'a: 'b, 'b, Family: RecursiveFamily + 'a, Container: 'a> std::cmp::PartialEq
         for VisitingRef<'b, Family, Container>
     where
-        Container: TryAsRef<'b, Family::Storage<'a>>,
+        Container: TryAsRef<Family::Storage<'a>>,
         Family::Visiting<'b, Container>: PartialEq,
     {
         fn eq(&self, rhs: &Self) -> bool {
@@ -328,7 +328,7 @@ mod graph2 {
     impl<'a: 'b, 'b, Family: RecursiveFamily + 'a, Container: 'a> std::hash::Hash
         for VisitingRef<'b, Family, Container>
     where
-        Container: TryAsRef<'b, Family::Storage<'a>>,
+        Container: TryAsRef<Family::Storage<'a>>,
         Family::Visiting<'b, Container>: std::hash::Hash,
     {
         fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -340,7 +340,7 @@ mod graph2 {
         for VisitingRef<'b, Family, Container>
     where
         Family::Visiting<'b, Container>: Display,
-        Container: TryAsRef<'b, Family::Storage<'a>>,
+        Container: TryAsRef<Family::Storage<'a>>,
     {
         fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
             write!(f, "{}", self.borrow())
@@ -415,16 +415,16 @@ pub mod peano {
         }
     }
 
-    impl<'a: 'b, 'b> TryAsRef<'b, Number<'a, Storage>> for NumberContainer<'a> {
+    impl<'a> TryAsRef<Number<'a, Storage>> for NumberContainer<'a> {
         type Error = graph::Error;
-        fn try_as_ref(&'b self) -> Result<&'b Number<'a, Storage>, Self::Error> {
+        fn try_as_ref(&self) -> Result<&Number<'a, Storage>, Self::Error> {
             match self {
                 NumberContainer::Number(val) => Ok(val),
             }
         }
     }
 
-    impl<'a: 'b, 'b, Container: 'a + TryAsRef<'b, Number<'a>>> std::cmp::PartialEq
+    impl<'a: 'b, 'b, Container: 'a + TryAsRef<Number<'a>>> std::cmp::PartialEq
         for Number<'b, Visiting<Container>>
     {
         fn eq(&self, rhs: &Self) -> bool {
@@ -436,7 +436,7 @@ pub mod peano {
         }
     }
 
-    impl<'a: 'b, 'b, Container: 'a + TryAsRef<'b, Number<'a>>> std::hash::Hash
+    impl<'a: 'b, 'b, Container: 'a + TryAsRef<Number<'a>>> std::hash::Hash
         for Number<'b, Visiting<Container>>
     {
         fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -460,7 +460,7 @@ impl<'a, Container: From<peano::Number<'a>>> graph2::TypedTree<'a, peano::Number
     }
 }
 
-impl<'a: 'b, 'b, Container: 'a + TryAsRef<'b, peano::Number<'a>>>
+impl<'a: 'b, 'b, Container: 'a + TryAsRef<peano::Number<'a>>>
     peano::Number<'b, graph2::Visiting<Container>>
 {
     fn value(&self) -> usize {
@@ -694,9 +694,9 @@ pub mod expr {
         }
     }
 
-    impl<'a: 'b, 'b> TryAsRef<'b, IntExpr<'a, Storage>> for ExprContainer<'a> {
+    impl<'a> TryAsRef<IntExpr<'a, Storage>> for ExprContainer<'a> {
         type Error = graph::Error;
-        fn try_as_ref(&'b self) -> Result<&'b IntExpr<'a, Storage>, Self::Error> {
+        fn try_as_ref(&self) -> Result<&IntExpr<'a, Storage>, Self::Error> {
             match self {
                 ExprContainer::IntExpr(val) => Ok(val),
                 ExprContainer::FloatExpr(_) => Err(graph::Error::IncorrectType {
@@ -707,9 +707,9 @@ pub mod expr {
         }
     }
 
-    impl<'a: 'b, 'b> TryAsRef<'b, FloatExpr<'a>> for ExprContainer<'a> {
+    impl<'a> TryAsRef<FloatExpr<'a>> for ExprContainer<'a> {
         type Error = graph::Error;
-        fn try_as_ref(&'b self) -> Result<&'b FloatExpr<'a>, Self::Error> {
+        fn try_as_ref(&self) -> Result<&FloatExpr<'a>, Self::Error> {
             match self {
                 ExprContainer::FloatExpr(val) => Ok(val),
                 ExprContainer::IntExpr(_) => Err(graph::Error::IncorrectType {
@@ -730,8 +730,8 @@ pub mod expr {
 
     impl<'a: 'b, 'b, Container: 'a> Display for IntExpr<'b, Visiting<Container>>
     where
-        Container: TryAsRef<'b, IntExpr<'a>>,
-        Container: TryAsRef<'b, FloatExpr<'a>>,
+        Container: TryAsRef<IntExpr<'a>>,
+        Container: TryAsRef<FloatExpr<'a>>,
     {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
@@ -749,8 +749,8 @@ pub mod expr {
 
     impl<'a: 'b, 'b, Container: 'a> Display for FloatExpr<'b, Visiting<Container>>
     where
-        Container: TryAsRef<'b, IntExpr<'a>>,
-        Container: TryAsRef<'b, FloatExpr<'a>>,
+        Container: TryAsRef<IntExpr<'a>>,
+        Container: TryAsRef<FloatExpr<'a>>,
     {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
@@ -767,8 +767,8 @@ pub mod expr {
 
     impl<'a: 'b, 'b, Container: 'a> std::cmp::PartialEq for IntExpr<'b, Visiting<Container>>
     where
-        Container: TryAsRef<'b, IntExpr<'a>>,
-        Container: TryAsRef<'b, FloatExpr<'a>>,
+        Container: TryAsRef<IntExpr<'a>>,
+        Container: TryAsRef<FloatExpr<'a>>,
     {
         fn eq(&self, rhs: &Self) -> bool {
             match (self, rhs) {
@@ -783,8 +783,8 @@ pub mod expr {
 
     impl<'a: 'b, 'b, Container: 'a> std::cmp::PartialEq for FloatExpr<'b, Visiting<Container>>
     where
-        Container: TryAsRef<'b, IntExpr<'a>>,
-        Container: TryAsRef<'b, FloatExpr<'a>>,
+        Container: TryAsRef<IntExpr<'a>>,
+        Container: TryAsRef<FloatExpr<'a>>,
     {
         fn eq(&self, rhs: &Self) -> bool {
             match (self, rhs) {
@@ -836,29 +836,29 @@ pub mod expr {
     // }
 }
 
-impl<'a: 'b, 'b, Container: 'a> expr::IntExpr<'b, graph2::Visiting<Container>>
+impl<'a, Container: 'a> expr::IntExpr<'a, graph2::Visiting<Container>>
 where
-    Container: TryAsRef<'b, expr::IntExpr<'a>>,
-    Container: TryAsRef<'b, expr::FloatExpr<'a>>,
+    Container: TryAsRef<expr::IntExpr<'a>>,
+    Container: TryAsRef<expr::FloatExpr<'a>>,
 {
     fn eval(self) -> i64 {
         match self {
-            Self::Int(val) => *val,
-            Self::IntRef(val) => **val,
+            Self::Int(&val) => val,
+            Self::IntRef(&val) => *val,
             Self::Add(a, b) => a.borrow().eval() + b.borrow().eval(),
             Self::Floor(a) => a.borrow().eval().floor() as i64,
         }
     }
 }
 
-impl<'a: 'b, 'b, Container: 'a> expr::FloatExpr<'b, graph2::Visiting<Container>>
+impl<'a, Container: 'a> expr::FloatExpr<'a, graph2::Visiting<Container>>
 where
-    Container: TryAsRef<'b, expr::IntExpr<'a>>,
-    Container: TryAsRef<'b, expr::FloatExpr<'a>>,
+    Container: TryAsRef<expr::IntExpr<'a>>,
+    Container: TryAsRef<expr::FloatExpr<'a>>,
 {
     fn eval(self) -> f64 {
         match self {
-            Self::Float(val) => *val,
+            Self::Float(&val) => val,
             Self::Add(a, b) => a.borrow().eval() + b.borrow().eval(),
             Self::Cast(a) => a.borrow().eval() as f64,
         }

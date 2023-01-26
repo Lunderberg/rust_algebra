@@ -28,12 +28,12 @@ mod graph2 {
 
     /// Usage type (e.g. Storage, Builder, Visitor)
     pub trait RecursiveRefType {
-        type Ref<'b, Family>
+        type Ref<'a, Family>
         where
-            Self: 'b;
-        type Value<'b, T>
+            Self: 'a;
+        type Value<'a, T>
         where
-            T: 'b;
+            T: 'a;
     }
 
     pub trait RecursiveFamilyGAT {
@@ -43,9 +43,9 @@ mod graph2 {
 
         type Container<'a>;
 
-        type Visiting<'b, Container>
+        type Visiting<'a, Container>
         where
-            Container: 'b;
+            Container: 'a;
     }
 
     /// Meta-object, at compile-time can generate an enum for a
@@ -83,12 +83,12 @@ mod graph2 {
     pub struct Storage;
 
     impl RecursiveRefType for Storage {
-        type Ref<'b, Family> = StorageRef<Family>
+        type Ref<'a, Family> = StorageRef<Family>
         where
-            Self: 'b;
-        type Value<'b, T> = T
+            Self: 'a;
+        type Value<'a, T> = T
         where
-            T: 'b;
+            T: 'a;
     }
 
     /// Represents a reference in the linearized structure.
@@ -195,12 +195,12 @@ mod graph2 {
     }
 
     impl RecursiveRefType for BuilderRefType {
-        type Ref<'b, Family> = BuilderRef<Family>
+        type Ref<'a, Family> = BuilderRef<Family>
         where
-            Self: 'b;
-        type Value<'b, T> = T
+            Self: 'a;
+        type Value<'a, T> = T
         where
-            T: 'b;
+            T: 'a;
     }
 
     impl<Container> Builder<Container> {
@@ -263,12 +263,12 @@ mod graph2 {
         _phantom: PhantomData<*const Container>,
     }
 
-    pub struct VisitingRef<'b, Family, Container> {
-        view: &'b [Container],
+    pub struct VisitingRef<'a, Family, Container> {
+        view: &'a [Container],
         _phantom: PhantomData<*const Family>,
     }
 
-    impl<'b, Family, Container> Clone for VisitingRef<'b, Family, Container> {
+    impl<'a, Family, Container> Clone for VisitingRef<'a, Family, Container> {
         fn clone(&self) -> Self {
             VisitingRef {
                 view: self.view,
@@ -276,15 +276,15 @@ mod graph2 {
             }
         }
     }
-    impl<'b, Family, Container> Copy for VisitingRef<'b, Family, Container> {}
+    impl<'a, Family, Container> Copy for VisitingRef<'a, Family, Container> {}
 
     impl<Container> RecursiveRefType for Visiting<Container> {
-        type Ref<'b, Family> = VisitingRef<'b, Family, Container>
+        type Ref<'a, Family> = VisitingRef<'a, Family, Container>
         where
-            Self: 'b;
-        type Value<'b, T> = &'b T
+            Self: 'a;
+        type Value<'a, T> = &'a T
         where
-            T: 'b;
+            T: 'a;
     }
 
     impl<'a: 'b, 'b, Family: RecursiveFamily + 'a, Container: 'a> VisitingRef<'b, Family, Container> {
@@ -357,9 +357,9 @@ pub mod peano {
 
     use super::graph2::*;
 
-    pub enum Number<'b, R: RecursiveRefType + 'b = Storage> {
+    pub enum Number<'a, R: RecursiveRefType + 'a = Storage> {
         Zero,
-        Successor(R::Ref<'b, NumberFamily>),
+        Successor(R::Ref<'a, NumberFamily>),
     }
 
     pub struct NumberFamily;
@@ -371,9 +371,9 @@ pub mod peano {
 
         type Container<'a> = NumberContainer<'a>;
 
-        type Visiting<'b, Container> = Number<'b, Visiting<Container>>
+        type Visiting<'a, Container> = Number<'a, Visiting<Container>>
         where
-            Container: 'b;
+            Container: 'a;
     }
 
     impl RecursiveFamily for NumberFamily {
@@ -575,17 +575,17 @@ pub mod expr {
     use super::graph2::*;
     use std::fmt::{Display, Formatter};
 
-    pub enum IntExpr<'b, R: RecursiveRefType + 'b = Storage> {
-        Int(R::Value<'b, i64>),
-        IntRef(R::Value<'b, &'b i64>),
-        Add(R::Ref<'b, IntExprFamily>, R::Ref<'b, IntExprFamily>),
-        Floor(R::Ref<'b, FloatExprFamily>),
+    pub enum IntExpr<'a, R: RecursiveRefType + 'a = Storage> {
+        Int(R::Value<'a, i64>),
+        IntRef(R::Value<'a, &'a i64>),
+        Add(R::Ref<'a, IntExprFamily>, R::Ref<'a, IntExprFamily>),
+        Floor(R::Ref<'a, FloatExprFamily>),
     }
 
-    pub enum FloatExpr<'b, R: RecursiveRefType + 'b = Storage> {
-        Float(R::Value<'b, f64>),
-        Add(R::Ref<'b, FloatExprFamily>, R::Ref<'b, FloatExprFamily>),
-        Cast(R::Ref<'b, IntExprFamily>),
+    pub enum FloatExpr<'a, R: RecursiveRefType + 'a = Storage> {
+        Float(R::Value<'a, f64>),
+        Add(R::Ref<'a, FloatExprFamily>, R::Ref<'a, FloatExprFamily>),
+        Cast(R::Ref<'a, IntExprFamily>),
     }
 
     pub struct IntExprFamily;
@@ -599,9 +599,9 @@ pub mod expr {
 
         type Container<'a> = ExprContainer<'a>;
 
-        type Visiting<'b, Container> = IntExpr<'b, Visiting<Container>>
+        type Visiting<'a, Container> = IntExpr<'a, Visiting<Container>>
         where
-            Container: 'b;
+            Container: 'a;
     }
 
     impl RecursiveFamily for IntExprFamily {
@@ -640,9 +640,9 @@ pub mod expr {
 
         type Container<'a> = ExprContainer<'a>;
 
-        type Visiting<'b, Container> = FloatExpr<'b, Visiting<Container>>
+        type Visiting<'a, Container> = FloatExpr<'a, Visiting<Container>>
         where
-            Container: 'b;
+            Container: 'a;
     }
 
     impl RecursiveFamily for FloatExprFamily {

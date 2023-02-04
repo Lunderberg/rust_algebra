@@ -120,13 +120,12 @@ mod graph2 {
     /// be able to represent any individual node type that may occur
     /// within the tree.  These should be expected by implementing
     /// `ContainerOf<Node>` for each type that may be contained.
-    pub struct TypedTree<'a, Family: RecursiveFamily + 'a> {
+    pub struct TypedTree<Family: RecursiveFamily> {
         nodes: Vec<Family::Container>,
-        _phantom: PhantomData<&'a Family>,
     }
 
-    impl<'a, Family: RecursiveFamily> TypedTree<'a, Family> {
-        pub fn build<Func, Container: 'a>(func: Func) -> Self
+    impl<Family: RecursiveFamily> TypedTree<Family> {
+        pub fn build<Func, Container>(func: Func) -> Self
         where
             Family: RecursiveFamily<Container = Container>,
             Func: FnOnce(&mut Builder<Container>) -> BuilderRef<Family>,
@@ -137,15 +136,12 @@ mod graph2 {
         }
 
         /// Returns a reference to the root node of the tree
-        pub fn root<'b>(&'b self) -> VisitingRef<'b, Family>
-        where
-            'a: 'b,
-        {
+        pub fn root<'b>(&'b self) -> VisitingRef<'b, Family> {
             VisitingRef { view: &self.nodes }
         }
     }
 
-    impl<'a, Family: RecursiveFamily + 'a> Display for TypedTree<'a, Family>
+    impl<Family: RecursiveFamily> Display for TypedTree<Family>
     where
         for<'b> Family::Visiting<'b>: Display,
     {
@@ -192,7 +188,7 @@ mod graph2 {
 
     impl<Container> Builder<Container> {
         /// Insert a new node to the builder
-        pub fn push<'a, Obj: BuilderObj>(&mut self, builder_obj: Obj) -> BuilderRef<Obj::Family>
+        pub fn push<Obj: BuilderObj>(&mut self, builder_obj: Obj) -> BuilderRef<Obj::Family>
         where
             <Obj::Family as RecursiveFamilyGAT>::Storage: Into<Container>,
         {
@@ -205,13 +201,10 @@ mod graph2 {
             }
         }
 
-        pub fn finalize<'a, Family: RecursiveFamily<Container = Container> + 'a>(
+        pub fn finalize<Family: RecursiveFamily<Container = Container>>(
             self,
             top_node: BuilderRef<Family>,
-        ) -> TypedTree<'a, Family>
-        where
-            Container: 'a,
-        {
+        ) -> TypedTree<Family> {
             let mut nodes = self.nodes;
 
             // These should usually be no-ops, since passing something
@@ -222,10 +215,7 @@ mod graph2 {
             nodes.truncate(top_node.abs_pos + 1);
             nodes.shrink_to_fit();
 
-            TypedTree {
-                nodes,
-                _phantom: PhantomData,
-            }
+            TypedTree { nodes }
         }
     }
 
@@ -411,7 +401,7 @@ pub mod peano {
     }
 }
 
-impl<'a> graph2::TypedTree<'a, peano::NumberFamily> {
+impl graph2::TypedTree<peano::NumberFamily> {
     fn new(val: u8) -> Self {
         let mut builder = graph2::Builder::new();
         let mut a = builder.push(peano::Number::Zero);

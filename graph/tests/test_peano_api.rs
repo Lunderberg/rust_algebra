@@ -16,7 +16,7 @@
 ///
 ///   May replace the `TryAsRef` trait.  Depends on whether it
 ///   supports non-static lifetimes.
-use graph2::{TryAsRef, TypedTree};
+use graph2::TypedTree;
 
 mod graph2 {
     use std::fmt::{Display, Formatter};
@@ -28,7 +28,7 @@ mod graph2 {
 
     /// Usage type (e.g. Storage, Builder, Visitor)
     pub trait RecursiveRefType {
-        type Ref<'a, Family>
+        type Ref<'a, Family: RecursiveFamily + 'a>
         where
             Self: 'a;
         type Value<'a, T>
@@ -37,32 +37,29 @@ mod graph2 {
     }
 
     pub trait RecursiveFamilyGAT {
-        type Builder<'a>;
+        type Builder;
 
-        type Storage<'a>;
+        type Storage;
 
-        type Container<'a>;
+        type Container: TryAsRef<Self::Storage> + From<Self::Storage>;
 
-        type Visiting<'a, Container>
+        type Visiting<'view>: 'view
         where
-            Container: 'a;
+            Self: 'view;
     }
 
     /// Meta-object, at compile-time can generate an enum for a
     /// specific usage type.  At runtime, can convert between enums
     /// of different usage types.
     pub trait RecursiveFamily: RecursiveFamilyGAT {
-        fn builder_to_storage<'a>(
-            builder_obj: Self::Builder<'a>,
-            new_pos: usize,
-        ) -> Self::Storage<'a>;
+        fn builder_to_storage(builder_obj: Self::Builder, new_pos: usize) -> Self::Storage;
 
-        fn storage_to_visiting<'a, 'b, Container>(
-            storage_obj: &'b Self::Storage<'a>,
-            view: &'b [Container],
-        ) -> Self::Visiting<'b, Container>
+        fn storage_to_visiting<'view>(
+            storage_obj: &'view Self::Storage,
+            view: &'view [Self::Container],
+        ) -> Self::Visiting<'view>
         where
-            Container: 'b;
+            Self: 'view;
     }
 
     pub trait TryAsRef<T> {
@@ -70,8 +67,8 @@ mod graph2 {
         fn try_as_ref(&self) -> Result<&T, Self::Error>;
     }
 
-    pub trait BuilderObj<'a>: 'a {
-        type Family: RecursiveFamily<Builder<'a> = Self>;
+    pub trait BuilderObj {
+        type Family: RecursiveFamily<Builder = Self>;
     }
 
     /////////////////////////////////////
@@ -83,7 +80,7 @@ mod graph2 {
     pub struct Storage;
 
     impl RecursiveRefType for Storage {
-        type Ref<'a, Family> = StorageRef<Family>
+        type Ref<'a, Family: RecursiveFamily+'a> = StorageRef<Family>
         where
             Self: 'a;
         type Value<'a, T> = T
@@ -100,15 +97,17 @@ mod graph2 {
         _node: PhantomData<*const Family>,
     }
 
-    impl<Family> StorageRef<Family> {
-        pub fn to_visiting<'a, 'b, Container>(
+    impl<Family: RecursiveFamily> StorageRef<Family> {
+        pub fn to_visiting<'a: 'b, 'b>(
             &'b self,
-            view: &'b [Container],
-        ) -> VisitingRef<'b, Family, Container> {
+            view: &'b [<Family as RecursiveFamilyGAT>::Container],
+        ) -> VisitingRef<'b, Family>
+        where
+            Family: 'a,
+        {
             let index = view.len().checked_sub(self.rel_pos).unwrap_or(0);
             VisitingRef {
                 view: &view[..index],
-                _phantom: PhantomData,
             }
         }
     }
@@ -121,26 +120,15 @@ mod graph2 {
     /// be able to represent any individual node type that may occur
     /// within the tree.  These should be expected by implementing
     /// `ContainerOf<Node>` for each type that may be contained.
-    pub struct TypedTree<
-        'a,
-        Family: RecursiveFamily,
-        Container: 'a = <Family as RecursiveFamilyGAT>::Container<'a>,
-    > {
-        nodes: Vec<Container>,
+    pub struct TypedTree<'a, Family: RecursiveFamily + 'a> {
+        nodes: Vec<Family::Container>,
         _phantom: PhantomData<&'a Family>,
     }
 
-    impl<'a, Family: RecursiveFamily, Container> TypedTree<'a, Family, Container> {
-        pub fn build<Func>(func: Func) -> Self
+    impl<'a, Family: RecursiveFamily> TypedTree<'a, Family> {
+        pub fn build<Func, Container: 'a>(func: Func) -> Self
         where
-            Family: RecursiveFamily<Container<'a> = Container>,
-            Func: FnOnce(&mut Builder<Container>) -> BuilderRef<Family>,
-        {
-            Self::build_with_container(func)
-        }
-
-        pub fn build_with_container<Func>(func: Func) -> Self
-        where
+            Family: RecursiveFamily<Container = Container>,
             Func: FnOnce(&mut Builder<Container>) -> BuilderRef<Family>,
         {
             let mut builder = Builder::new();
@@ -149,18 +137,17 @@ mod graph2 {
         }
 
         /// Returns a reference to the root node of the tree
-        pub fn root(&self) -> VisitingRef<Family, Container> {
-            VisitingRef {
-                view: &self.nodes,
-                _phantom: PhantomData,
-            }
+        pub fn root<'b>(&'b self) -> VisitingRef<'b, Family>
+        where
+            'a: 'b,
+        {
+            VisitingRef { view: &self.nodes }
         }
     }
 
-    impl<'a, Family: RecursiveFamily + 'a, Container: 'a> Display for TypedTree<'a, Family, Container>
+    impl<'a, Family: RecursiveFamily + 'a> Display for TypedTree<'a, Family>
     where
-        for<'b> Family::Visiting<'b, Container>: Display,
-        Container: TryAsRef<Family::Storage<'a>>,
+        for<'b> Family::Visiting<'b>: Display,
     {
         fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
             write!(f, "{}", self.root())
@@ -195,7 +182,7 @@ mod graph2 {
     }
 
     impl RecursiveRefType for BuilderRefType {
-        type Ref<'a, Family> = BuilderRef<Family>
+        type Ref<'a, Family: RecursiveFamily+'a> = BuilderRef<Family>
         where
             Self: 'a;
         type Value<'a, T> = T
@@ -205,10 +192,9 @@ mod graph2 {
 
     impl<Container> Builder<Container> {
         /// Insert a new node to the builder
-        pub fn push<'a, Obj: BuilderObj<'a>>(&mut self, builder_obj: Obj) -> BuilderRef<Obj::Family>
+        pub fn push<'a, Obj: BuilderObj>(&mut self, builder_obj: Obj) -> BuilderRef<Obj::Family>
         where
-            <Obj::Family as RecursiveFamilyGAT>::Storage<'a>: Into<Container>,
-            Container: 'a,
+            <Obj::Family as RecursiveFamilyGAT>::Storage: Into<Container>,
         {
             let abs_pos = self.nodes.len();
             let storage_obj = Obj::Family::builder_to_storage(builder_obj, abs_pos);
@@ -219,10 +205,10 @@ mod graph2 {
             }
         }
 
-        pub fn finalize<'a, Family: RecursiveFamily + 'a>(
+        pub fn finalize<'a, Family: RecursiveFamily<Container = Container> + 'a>(
             self,
             top_node: BuilderRef<Family>,
-        ) -> TypedTree<'a, Family, Container>
+        ) -> TypedTree<'a, Family>
         where
             Container: 'a,
         {
@@ -259,27 +245,21 @@ mod graph2 {
     //////////////   Visiting   //////////////
     //////////////////////////////////////////
 
-    pub struct Visiting<Container> {
-        _phantom: PhantomData<*const Container>,
+    pub struct Visiting;
+
+    pub struct VisitingRef<'a, Family: RecursiveFamily + 'a> {
+        view: &'a [Family::Container],
     }
 
-    pub struct VisitingRef<'a, Family, Container> {
-        view: &'a [Container],
-        _phantom: PhantomData<*const Family>,
-    }
-
-    impl<'a, Family, Container> Clone for VisitingRef<'a, Family, Container> {
+    impl<'a, Family: RecursiveFamily> Clone for VisitingRef<'a, Family> {
         fn clone(&self) -> Self {
-            VisitingRef {
-                view: self.view,
-                _phantom: PhantomData,
-            }
+            VisitingRef { view: self.view }
         }
     }
-    impl<'a, Family, Container> Copy for VisitingRef<'a, Family, Container> {}
+    impl<'a, Family: RecursiveFamily> Copy for VisitingRef<'a, Family> {}
 
-    impl<Container> RecursiveRefType for Visiting<Container> {
-        type Ref<'a, Family> = VisitingRef<'a, Family, Container>
+    impl RecursiveRefType for Visiting {
+        type Ref<'a, Family: RecursiveFamily+'a> = VisitingRef<'a, Family>
         where
             Self: 'a;
         type Value<'a, T> = &'a T
@@ -287,21 +267,18 @@ mod graph2 {
             T: 'a;
     }
 
-    impl<'a: 'b, 'b, Family: RecursiveFamily + 'a, Container: 'a> VisitingRef<'b, Family, Container> {
+    impl<'a: 'b, 'b, Family: RecursiveFamily> VisitingRef<'b, Family> {
         // TODO: Maybe a utility trait that is implemented whenever
         // there are TryAsRef implementations for all reachable
         // recursive types?  Repeating `where Container:
         // TryAsRef<...>` for all types is rather tedious.
-        pub fn borrow(self) -> Family::Visiting<'b, Container>
-        where
-            Container: TryAsRef<Family::Storage<'a>>,
-        {
-            let container: &Container = self
+        pub fn borrow(self) -> Family::Visiting<'b> {
+            let container: &Family::Container = self
                 .view
                 .last()
                 .ok_or(graph::Error::EmptyExpression)
                 .expect("Malformed tree found with empty node");
-            let node: &Family::Storage<'a> = container
+            let node: &Family::Storage = container
                 .try_as_ref()
                 .expect("Incorrect type found when visiting tree");
             let view = self.view;
@@ -314,33 +291,27 @@ mod graph2 {
         }
     }
 
-    impl<'a: 'b, 'b, Family: RecursiveFamily + 'a, Container: 'a> std::cmp::PartialEq
-        for VisitingRef<'b, Family, Container>
+    impl<'a: 'b, 'b, Family: RecursiveFamily + 'a> std::cmp::PartialEq for VisitingRef<'b, Family>
     where
-        Container: TryAsRef<Family::Storage<'a>>,
-        Family::Visiting<'b, Container>: PartialEq,
+        Family::Visiting<'b>: PartialEq,
     {
         fn eq(&self, rhs: &Self) -> bool {
             self.ref_equals(*rhs) || (self.borrow() == rhs.borrow())
         }
     }
 
-    impl<'a: 'b, 'b, Family: RecursiveFamily + 'a, Container: 'a> std::hash::Hash
-        for VisitingRef<'b, Family, Container>
+    impl<'a: 'b, 'b, Family: RecursiveFamily + 'a> std::hash::Hash for VisitingRef<'b, Family>
     where
-        Container: TryAsRef<Family::Storage<'a>>,
-        Family::Visiting<'b, Container>: std::hash::Hash,
+        Family::Visiting<'b>: std::hash::Hash,
     {
         fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
             self.borrow().hash(state)
         }
     }
 
-    impl<'a: 'b, 'b, Family: RecursiveFamily + 'a, Container: 'a> Display
-        for VisitingRef<'b, Family, Container>
+    impl<'a: 'b, 'b, Family: RecursiveFamily + 'a> Display for VisitingRef<'b, Family>
     where
-        Family::Visiting<'b, Container>: Display,
-        Container: TryAsRef<Family::Storage<'a>>,
+        Family::Visiting<'b>: Display,
     {
         fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
             write!(f, "{}", self.borrow())
@@ -365,34 +336,29 @@ pub mod peano {
     pub struct NumberFamily;
 
     impl RecursiveFamilyGAT for NumberFamily {
-        type Builder<'a> = Number<'a, BuilderRefType>;
+        type Builder = Number<'static, BuilderRefType>;
 
-        type Storage<'a> = Number<'a, Storage>;
+        type Storage = Number<'static, Storage>;
 
-        type Container<'a> = NumberContainer<'a>;
+        type Container = NumberContainer;
 
-        type Visiting<'a, Container> = Number<'a, Visiting<Container>>
-        where
-            Container: 'a;
+        type Visiting<'view> = Number<'view, Visiting>;
     }
 
     impl RecursiveFamily for NumberFamily {
-        fn builder_to_storage<'a>(
-            builder_obj: Self::Builder<'a>,
-            new_pos: usize,
-        ) -> Self::Storage<'a> {
+        fn builder_to_storage(builder_obj: Self::Builder, new_pos: usize) -> Self::Storage {
             match builder_obj {
                 Number::Zero => Number::Zero,
                 Number::Successor(old_ref) => Number::Successor(old_ref.to_storage(new_pos)),
             }
         }
 
-        fn storage_to_visiting<'a, 'b, Container>(
-            storage_obj: &'b Self::Storage<'a>,
-            view: &'b [Container],
-        ) -> Self::Visiting<'b, Container>
+        fn storage_to_visiting<'view>(
+            storage_obj: &'view Self::Storage,
+            view: &'view [Self::Container],
+        ) -> Self::Visiting<'view>
         where
-            Container: 'b,
+            Self: 'view,
         {
             match storage_obj {
                 Number::Zero => Number::Zero,
@@ -401,32 +367,30 @@ pub mod peano {
         }
     }
 
-    impl<'a> BuilderObj<'a> for Number<'a, BuilderRefType> {
+    impl BuilderObj for Number<'static, BuilderRefType> {
         type Family = NumberFamily;
     }
 
-    pub enum NumberContainer<'a> {
-        Number(Number<'a, Storage>),
+    pub enum NumberContainer {
+        Number(Number<'static, Storage>),
     }
 
-    impl<'a> From<Number<'a, Storage>> for NumberContainer<'a> {
-        fn from(val: Number<'a, Storage>) -> Self {
+    impl<'a> From<Number<'static, Storage>> for NumberContainer {
+        fn from(val: Number<'static, Storage>) -> Self {
             NumberContainer::Number(val)
         }
     }
 
-    impl<'a> TryAsRef<Number<'a, Storage>> for NumberContainer<'a> {
+    impl TryAsRef<Number<'static, Storage>> for NumberContainer {
         type Error = graph::Error;
-        fn try_as_ref(&self) -> Result<&Number<'a, Storage>, Self::Error> {
+        fn try_as_ref(&self) -> Result<&Number<'static, Storage>, Self::Error> {
             match self {
                 NumberContainer::Number(val) => Ok(val),
             }
         }
     }
 
-    impl<'a: 'b, 'b, Container: 'a + TryAsRef<Number<'a>>> std::cmp::PartialEq
-        for Number<'b, Visiting<Container>>
-    {
+    impl<'a: 'b, 'b> std::cmp::PartialEq for Number<'b, Visiting> {
         fn eq(&self, rhs: &Self) -> bool {
             match (self, rhs) {
                 (Number::Zero, Number::Zero) => true,
@@ -436,9 +400,7 @@ pub mod peano {
         }
     }
 
-    impl<'a: 'b, 'b, Container: 'a + TryAsRef<Number<'a>>> std::hash::Hash
-        for Number<'b, Visiting<Container>>
-    {
+    impl<'a: 'b, 'b> std::hash::Hash for Number<'b, Visiting> {
         fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
             std::mem::discriminant(self).hash(state);
             match self {
@@ -449,7 +411,7 @@ pub mod peano {
     }
 }
 
-impl<'a, Container: From<peano::Number<'a>>> graph2::TypedTree<'a, peano::NumberFamily, Container> {
+impl<'a> graph2::TypedTree<'a, peano::NumberFamily> {
     fn new(val: u8) -> Self {
         let mut builder = graph2::Builder::new();
         let mut a = builder.push(peano::Number::Zero);
@@ -460,9 +422,7 @@ impl<'a, Container: From<peano::Number<'a>>> graph2::TypedTree<'a, peano::Number
     }
 }
 
-impl<'a: 'b, 'b, Container: 'a + TryAsRef<peano::Number<'a>>>
-    peano::Number<'b, graph2::Visiting<Container>>
-{
+impl<'a: 'b, 'b> peano::Number<'b, graph2::Visiting> {
     fn value(&self) -> usize {
         match self {
             peano::Number::Zero => 0,
@@ -476,7 +436,7 @@ impl<'a: 'b, 'b, Container: 'a + TryAsRef<peano::Number<'a>>>
 
 #[test]
 fn construct_annotated() {
-    let _three: graph2::TypedTree<peano::NumberFamily, peano::NumberContainer> = {
+    let _three: graph2::TypedTree<peano::NumberFamily> = {
         let mut builder = graph2::Builder::<peano::NumberContainer>::new();
         let mut a: graph2::BuilderRef<peano::NumberFamily> =
             builder.push::<peano::Number<graph2::BuilderRefType>>(
@@ -493,7 +453,7 @@ fn construct_annotated() {
 
 #[test]
 fn construct_unannotated() {
-    let _three: graph2::TypedTree<peano::NumberFamily, peano::NumberContainer> = {
+    let _three: graph2::TypedTree<peano::NumberFamily> = {
         let mut builder = graph2::Builder::new();
         let mut a = builder.push(peano::Number::Zero);
 
@@ -506,13 +466,13 @@ fn construct_unannotated() {
 
 #[test]
 fn call_static_method() {
-    let _three = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(3);
+    let _three = graph2::TypedTree::<peano::NumberFamily>::new(3);
 }
 
 #[test]
 fn match_root() -> Result<(), graph::Error> {
-    let zero = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(0);
-    let one = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(1);
+    let zero = graph2::TypedTree::<peano::NumberFamily>::new(0);
+    let one = graph2::TypedTree::<peano::NumberFamily>::new(1);
 
     use peano::Number;
     assert!(matches!(zero.root().borrow(), Number::Zero));
@@ -523,7 +483,7 @@ fn match_root() -> Result<(), graph::Error> {
 
 #[test]
 fn match_live_ref() -> Result<(), graph::Error> {
-    let three = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(3);
+    let three = graph2::TypedTree::<peano::NumberFamily>::new(3);
 
     use peano::Number;
     let value = match three.root().borrow() {
@@ -550,7 +510,7 @@ fn match_live_ref() -> Result<(), graph::Error> {
 
 #[test]
 fn call_instance_method() -> Result<(), graph::Error> {
-    let three = graph2::TypedTree::<peano::NumberFamily, peano::NumberContainer>::new(3);
+    let three = graph2::TypedTree::<peano::NumberFamily>::new(3);
     let value = three.root().borrow().value();
     assert_eq!(value, 3);
     Ok(())
@@ -575,40 +535,47 @@ pub mod expr {
     use super::graph2::*;
     use std::fmt::{Display, Formatter};
 
-    pub enum IntExpr<'a, R: RecursiveRefType + 'a = Storage> {
-        Int(R::Value<'a, i64>),
-        IntRef(R::Value<'a, &'a i64>),
-        Add(R::Ref<'a, IntExprFamily>, R::Ref<'a, IntExprFamily>),
-        Floor(R::Ref<'a, FloatExprFamily>),
+    pub enum IntExpr<'a: 'view, 'view, R: RecursiveRefType + 'view = Storage> {
+        Int(R::Value<'view, i64>),
+        IntRef(R::Value<'view, &'a i64>),
+        Add(
+            R::Ref<'view, IntExprFamily<'a>>,
+            R::Ref<'view, IntExprFamily<'a>>,
+        ),
+        Floor(R::Ref<'view, FloatExprFamily<'a>>),
     }
 
-    pub enum FloatExpr<'a, R: RecursiveRefType + 'a = Storage> {
-        Float(R::Value<'a, f64>),
-        Add(R::Ref<'a, FloatExprFamily>, R::Ref<'a, FloatExprFamily>),
-        Cast(R::Ref<'a, IntExprFamily>),
+    pub enum FloatExpr<'a: 'view, 'view, R: RecursiveRefType + 'view = Storage> {
+        Float(R::Value<'view, f64>),
+        Add(
+            R::Ref<'view, FloatExprFamily<'a>>,
+            R::Ref<'view, FloatExprFamily<'a>>,
+        ),
+        Cast(R::Ref<'view, IntExprFamily<'a>>),
     }
 
-    pub struct IntExprFamily;
+    pub struct IntExprFamily<'a> {
+        _phantom: std::marker::PhantomData<&'a ()>,
+    }
 
-    pub struct FloatExprFamily;
+    pub struct FloatExprFamily<'a> {
+        _phantom: std::marker::PhantomData<&'a ()>,
+    }
 
-    impl RecursiveFamilyGAT for IntExprFamily {
-        type Builder<'a> = IntExpr<'a, BuilderRefType>;
+    impl<'a> RecursiveFamilyGAT for IntExprFamily<'a> {
+        type Builder = IntExpr<'a, 'a, BuilderRefType>;
 
-        type Storage<'a> = IntExpr<'a, Storage>;
+        type Storage = IntExpr<'a, 'a, Storage>;
 
-        type Container<'a> = ExprContainer<'a>;
+        type Container = ExprContainer<'a>;
 
-        type Visiting<'a, Container> = IntExpr<'a, Visiting<Container>>
+        type Visiting<'view> = IntExpr<'a, 'view, Visiting>
         where
-            Container: 'a;
+            'a:'view;
     }
 
-    impl RecursiveFamily for IntExprFamily {
-        fn builder_to_storage<'a>(
-            builder_obj: Self::Builder<'a>,
-            new_pos: usize,
-        ) -> Self::Storage<'a> {
+    impl<'a> RecursiveFamily for IntExprFamily<'a> {
+        fn builder_to_storage(builder_obj: Self::Builder, new_pos: usize) -> Self::Storage {
             match builder_obj {
                 IntExpr::Int(val) => IntExpr::Int(val),
                 IntExpr::IntRef(val) => IntExpr::IntRef(val),
@@ -617,12 +584,12 @@ pub mod expr {
             }
         }
 
-        fn storage_to_visiting<'a, 'b, Container>(
-            storage_obj: &'b Self::Storage<'a>,
-            view: &'b [Container],
-        ) -> Self::Visiting<'b, Container>
+        fn storage_to_visiting<'view>(
+            storage_obj: &'view Self::Storage,
+            view: &'view [Self::Container],
+        ) -> Self::Visiting<'view>
         where
-            Container: 'b,
+            'a: 'view,
         {
             match storage_obj {
                 IntExpr::Int(val) => IntExpr::Int(val),
@@ -633,23 +600,20 @@ pub mod expr {
         }
     }
 
-    impl RecursiveFamilyGAT for FloatExprFamily {
-        type Builder<'a> = FloatExpr<'a, BuilderRefType>;
+    impl<'a> RecursiveFamilyGAT for FloatExprFamily<'a> {
+        type Builder = FloatExpr<'a, 'a, BuilderRefType>;
 
-        type Storage<'a> = FloatExpr<'a, Storage>;
+        type Storage = FloatExpr<'a, 'a, Storage>;
 
-        type Container<'a> = ExprContainer<'a>;
+        type Container = ExprContainer<'a>;
 
-        type Visiting<'a, Container> = FloatExpr<'a, Visiting<Container>>
+        type Visiting<'view> = FloatExpr<'a, 'view, Visiting>
         where
-            Container: 'a;
+            'a:'view;
     }
 
-    impl RecursiveFamily for FloatExprFamily {
-        fn builder_to_storage<'a>(
-            builder_obj: Self::Builder<'a>,
-            new_pos: usize,
-        ) -> Self::Storage<'a> {
+    impl<'a> RecursiveFamily for FloatExprFamily<'a> {
+        fn builder_to_storage(builder_obj: Self::Builder, new_pos: usize) -> Self::Storage {
             match builder_obj {
                 FloatExpr::Float(val) => FloatExpr::Float(val),
                 FloatExpr::Add(a, b) => {
@@ -659,12 +623,12 @@ pub mod expr {
             }
         }
 
-        fn storage_to_visiting<'a, 'b, Container>(
-            storage_obj: &'b Self::Storage<'a>,
-            view: &'b [Container],
-        ) -> Self::Visiting<'b, Container>
+        fn storage_to_visiting<'view>(
+            storage_obj: &'view Self::Storage,
+            view: &'view [Self::Container],
+        ) -> Self::Visiting<'view>
         where
-            Container: 'b,
+            'a: 'view,
         {
             match storage_obj {
                 FloatExpr::Float(val) => FloatExpr::Float(val),
@@ -678,25 +642,25 @@ pub mod expr {
     // FloatExprContainer separately, but that would be inconvenient
     // to write out for the API testing
     pub enum ExprContainer<'a> {
-        IntExpr(IntExpr<'a, Storage>),
-        FloatExpr(FloatExpr<'a, Storage>),
+        IntExpr(IntExpr<'a, 'a, Storage>),
+        FloatExpr(FloatExpr<'a, 'a, Storage>),
     }
 
-    impl<'a> From<IntExpr<'a, Storage>> for ExprContainer<'a> {
-        fn from(val: IntExpr<'a, Storage>) -> Self {
+    impl<'a> From<IntExpr<'a, 'a, Storage>> for ExprContainer<'a> {
+        fn from(val: IntExpr<'a, 'a, Storage>) -> Self {
             ExprContainer::IntExpr(val)
         }
     }
 
-    impl<'a> From<FloatExpr<'a, Storage>> for ExprContainer<'a> {
-        fn from(val: FloatExpr<'a, Storage>) -> Self {
+    impl<'a> From<FloatExpr<'a, 'a, Storage>> for ExprContainer<'a> {
+        fn from(val: FloatExpr<'a, 'a, Storage>) -> Self {
             ExprContainer::FloatExpr(val)
         }
     }
 
-    impl<'a> TryAsRef<IntExpr<'a, Storage>> for ExprContainer<'a> {
+    impl<'a> TryAsRef<IntExpr<'a, 'a, Storage>> for ExprContainer<'a> {
         type Error = graph::Error;
-        fn try_as_ref(&self) -> Result<&IntExpr<'a, Storage>, Self::Error> {
+        fn try_as_ref(&self) -> Result<&IntExpr<'a, 'a, Storage>, Self::Error> {
             match self {
                 ExprContainer::IntExpr(val) => Ok(val),
                 ExprContainer::FloatExpr(_) => Err(graph::Error::IncorrectType {
@@ -707,9 +671,9 @@ pub mod expr {
         }
     }
 
-    impl<'a> TryAsRef<FloatExpr<'a>> for ExprContainer<'a> {
+    impl<'a> TryAsRef<FloatExpr<'a, 'a>> for ExprContainer<'a> {
         type Error = graph::Error;
-        fn try_as_ref(&self) -> Result<&FloatExpr<'a>, Self::Error> {
+        fn try_as_ref(&self) -> Result<&FloatExpr<'a, 'a>, Self::Error> {
             match self {
                 ExprContainer::FloatExpr(val) => Ok(val),
                 ExprContainer::IntExpr(_) => Err(graph::Error::IncorrectType {
@@ -720,19 +684,15 @@ pub mod expr {
         }
     }
 
-    impl<'a> BuilderObj<'a> for IntExpr<'a, BuilderRefType> {
-        type Family = IntExprFamily;
+    impl<'a> BuilderObj for IntExpr<'a, 'a, BuilderRefType> {
+        type Family = IntExprFamily<'a>;
     }
 
-    impl<'a> BuilderObj<'a> for FloatExpr<'a, BuilderRefType> {
-        type Family = FloatExprFamily;
+    impl<'a> BuilderObj for FloatExpr<'a, 'a, BuilderRefType> {
+        type Family = FloatExprFamily<'a>;
     }
 
-    impl<'a: 'b, 'b, Container: 'a> Display for IntExpr<'b, Visiting<Container>>
-    where
-        Container: TryAsRef<IntExpr<'a>>,
-        Container: TryAsRef<FloatExpr<'a>>,
-    {
+    impl<'a: 'view, 'view> Display for IntExpr<'a, 'view, Visiting> {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
                 IntExpr::Int(val) => write!(f, "{val}"),
@@ -747,11 +707,7 @@ pub mod expr {
         }
     }
 
-    impl<'a: 'b, 'b, Container: 'a> Display for FloatExpr<'b, Visiting<Container>>
-    where
-        Container: TryAsRef<IntExpr<'a>>,
-        Container: TryAsRef<FloatExpr<'a>>,
-    {
+    impl<'a: 'view, 'view> Display for FloatExpr<'a, 'view, Visiting> {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
                 FloatExpr::Float(val) => write!(f, "{val}"),
@@ -765,11 +721,7 @@ pub mod expr {
         }
     }
 
-    impl<'a: 'b, 'b, Container: 'a> std::cmp::PartialEq for IntExpr<'b, Visiting<Container>>
-    where
-        Container: TryAsRef<IntExpr<'a>>,
-        Container: TryAsRef<FloatExpr<'a>>,
-    {
+    impl<'a: 'view, 'view> std::cmp::PartialEq for IntExpr<'a, 'view, Visiting> {
         fn eq(&self, rhs: &Self) -> bool {
             match (self, rhs) {
                 (IntExpr::Int(a), IntExpr::Int(b)) => a == b,
@@ -781,11 +733,7 @@ pub mod expr {
         }
     }
 
-    impl<'a: 'b, 'b, Container: 'a> std::cmp::PartialEq for FloatExpr<'b, Visiting<Container>>
-    where
-        Container: TryAsRef<IntExpr<'a>>,
-        Container: TryAsRef<FloatExpr<'a>>,
-    {
+    impl<'a: 'view, 'view> std::cmp::PartialEq for FloatExpr<'a, 'view, Visiting> {
         fn eq(&self, rhs: &Self) -> bool {
             match (self, rhs) {
                 (FloatExpr::Float(a), FloatExpr::Float(b)) => a == b,
@@ -796,7 +744,7 @@ pub mod expr {
         }
     }
 
-    // impl<'a: 'b, 'b, Container> std::hash::Hash for IntExpr<'a, 'b, Visiting<Container>>
+    // impl<'a: 'b, 'b, Container> std::hash::Hash for IntExpr<'a, 'b, Visiting>
     // where
     //     Container: TryAsRef<IntExpr<'a, 'a>>,
     //     Container: TryAsRef<FloatExpr<'a, 'a>>,
@@ -816,7 +764,7 @@ pub mod expr {
     //     }
     // }
 
-    // impl<'a: 'b, 'b, Container> std::hash::Hash for FloatExpr<'a, 'b, Visiting<Container>>
+    // impl<'a: 'b, 'b, Container> std::hash::Hash for FloatExpr<'a, 'b, Visiting>
     // where
     //     Container: TryAsRef<IntExpr<'a, 'a>>,
     //     Container: TryAsRef<FloatExpr<'a, 'a>>,
@@ -836,11 +784,7 @@ pub mod expr {
     // }
 }
 
-impl<'a, Container: 'a> expr::IntExpr<'a, graph2::Visiting<Container>>
-where
-    Container: TryAsRef<expr::IntExpr<'a>>,
-    Container: TryAsRef<expr::FloatExpr<'a>>,
-{
+impl<'a: 'view, 'view> expr::IntExpr<'a, 'view, graph2::Visiting> {
     fn eval(self) -> i64 {
         match self {
             Self::Int(&val) => val,
@@ -851,11 +795,7 @@ where
     }
 }
 
-impl<'a, Container: 'a> expr::FloatExpr<'a, graph2::Visiting<Container>>
-where
-    Container: TryAsRef<expr::IntExpr<'a>>,
-    Container: TryAsRef<expr::FloatExpr<'a>>,
-{
+impl<'a: 'view, 'view> expr::FloatExpr<'a, 'view, graph2::Visiting> {
     fn eval(self) -> f64 {
         match self {
             Self::Float(&val) => val,

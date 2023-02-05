@@ -37,9 +37,18 @@ mod graph2 {
     }
 
     pub trait RecursiveFamilyGAT {
-        type Builder;
+        type Builder: BuilderObj<Family = Self>;
 
-        type Storage;
+        // The requirement of `Into<Self::Container>` should already
+        // be provided by the requirement of `Container:
+        // From<Self::Storage>`.  However, in some cases, type
+        // normalization may prevent the implied bound from being
+        // used.
+        //
+        // Related:
+        // https://stackoverflow.com/q/44790642,
+        // https://github.com/rust-lang/rust/issues/105948
+        type Storage: Into<Self::Container>;
 
         type Container: TryAsRef<Self::Storage> + From<Self::Storage>;
 
@@ -97,14 +106,8 @@ mod graph2 {
         _node: PhantomData<*const Family>,
     }
 
-    impl<Family: RecursiveFamily> StorageRef<Family> {
-        pub fn to_visiting<'a: 'b, 'b>(
-            &'b self,
-            view: &'b [<Family as RecursiveFamilyGAT>::Container],
-        ) -> VisitingRef<'b, Family>
-        where
-            Family: 'a,
-        {
+    impl<Family: RecursiveFamily<Container = Container>, Container> StorageRef<Family> {
+        pub fn to_visiting<'b>(&'b self, view: &'b [Container]) -> VisitingRef<'b, Family> {
             let index = view.len().checked_sub(self.rel_pos).unwrap_or(0);
             VisitingRef {
                 view: &view[..index],
@@ -188,13 +191,18 @@ mod graph2 {
 
     impl<Container> Builder<Container> {
         /// Insert a new node to the builder
-        pub fn push<Obj: BuilderObj>(&mut self, builder_obj: Obj) -> BuilderRef<Obj::Family>
-        where
-            <Obj::Family as RecursiveFamilyGAT>::Storage: Into<Container>,
-        {
+        pub fn push<
+            Obj: BuilderObj<Family = Family>,
+            Family: RecursiveFamily<Builder = Obj, Container = Container>,
+        >(
+            &mut self,
+            builder_obj: Obj,
+        ) -> BuilderRef<Obj::Family> {
             let abs_pos = self.nodes.len();
-            let storage_obj = Obj::Family::builder_to_storage(builder_obj, abs_pos);
-            self.nodes.push(storage_obj.into());
+            let storage_obj: Family::Storage =
+                Obj::Family::builder_to_storage(builder_obj, abs_pos);
+            let container_obj: Family::Container = storage_obj.into();
+            self.nodes.push(container_obj);
             BuilderRef {
                 abs_pos,
                 _node: PhantomData,
@@ -429,13 +437,13 @@ fn construct_annotated() {
     let _three: graph2::TypedTree<peano::NumberFamily> = {
         let mut builder = graph2::Builder::<peano::NumberContainer>::new();
         let mut a: graph2::BuilderRef<peano::NumberFamily> =
-            builder.push::<peano::Number<graph2::BuilderRefType>>(
+            builder.push::<peano::Number<graph2::BuilderRefType>, peano::NumberFamily>(
                 peano::Number::<graph2::BuilderRefType>::Zero,
             );
         for _ in 0..3 {
-            a = builder.push::<peano::Number<graph2::BuilderRefType>>(peano::Number::<
-                graph2::BuilderRefType,
-            >::Successor(a));
+            a = builder.push::<peano::Number<graph2::BuilderRefType>, peano::NumberFamily>(
+                peano::Number::<graph2::BuilderRefType>::Successor(a),
+            );
         }
         builder.finalize(a)
     };

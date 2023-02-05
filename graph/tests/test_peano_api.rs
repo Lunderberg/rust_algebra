@@ -36,7 +36,10 @@ mod graph2 {
             T: 'a;
     }
 
-    pub trait RecursiveFamilyGAT {
+    /// Meta-object, at compile-time can generate an enum for a
+    /// specific usage type.  At runtime, can convert between enums
+    /// of different usage types.
+    pub trait RecursiveFamily {
         type Builder: BuilderObj<Family = Self>;
 
         // The requirement of `Into<Self::Container>` should already
@@ -55,12 +58,7 @@ mod graph2 {
         type Visiting<'view>: 'view
         where
             Self: 'view;
-    }
 
-    /// Meta-object, at compile-time can generate an enum for a
-    /// specific usage type.  At runtime, can convert between enums
-    /// of different usage types.
-    pub trait RecursiveFamily: RecursiveFamilyGAT {
         fn builder_to_storage(builder_obj: Self::Builder, new_pos: usize) -> Self::Storage;
 
         fn storage_to_visiting<'view>(
@@ -333,7 +331,7 @@ pub mod peano {
 
     pub struct NumberFamily;
 
-    impl RecursiveFamilyGAT for NumberFamily {
+    impl RecursiveFamily for NumberFamily {
         type Builder = Number<'static, BuilderRefType>;
 
         type Storage = Number<'static, Storage>;
@@ -341,9 +339,7 @@ pub mod peano {
         type Container = NumberContainer;
 
         type Visiting<'view> = Number<'view, Visiting>;
-    }
 
-    impl RecursiveFamily for NumberFamily {
         fn builder_to_storage(builder_obj: Self::Builder, new_pos: usize) -> Self::Storage {
             match builder_obj {
                 Number::Zero => Number::Zero,
@@ -560,7 +556,7 @@ pub mod expr {
         _phantom: std::marker::PhantomData<&'a ()>,
     }
 
-    impl<'a> RecursiveFamilyGAT for IntExprFamily<'a> {
+    impl<'a> RecursiveFamily for IntExprFamily<'a> {
         type Builder = IntExpr<'a, 'a, BuilderRefType>;
 
         type Storage = IntExpr<'a, 'a, Storage>;
@@ -570,9 +566,7 @@ pub mod expr {
         type Visiting<'view> = IntExpr<'a, 'view, Visiting>
         where
             'a:'view;
-    }
 
-    impl<'a> RecursiveFamily for IntExprFamily<'a> {
         fn builder_to_storage(builder_obj: Self::Builder, new_pos: usize) -> Self::Storage {
             match builder_obj {
                 IntExpr::Int(val) => IntExpr::Int(val),
@@ -598,7 +592,7 @@ pub mod expr {
         }
     }
 
-    impl<'a> RecursiveFamilyGAT for FloatExprFamily<'a> {
+    impl<'a> RecursiveFamily for FloatExprFamily<'a> {
         type Builder = FloatExpr<'a, 'a, BuilderRefType>;
 
         type Storage = FloatExpr<'a, 'a, Storage>;
@@ -608,9 +602,7 @@ pub mod expr {
         type Visiting<'view> = FloatExpr<'a, 'view, Visiting>
         where
             'a:'view;
-    }
 
-    impl<'a> RecursiveFamily for FloatExprFamily<'a> {
         fn builder_to_storage(builder_obj: Self::Builder, new_pos: usize) -> Self::Storage {
             match builder_obj {
                 FloatExpr::Float(val) => FloatExpr::Float(val),

@@ -1,7 +1,6 @@
 mod impl_annotate;
 mod impl_linearize;
 mod impl_tree;
-mod utils;
 
 #[proc_macro_attribute]
 pub fn annotate_recursive_enum_types(

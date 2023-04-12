@@ -1,155 +1,122 @@
-use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 
-use crate::{ContainerOf, RecursiveFamily, RecursiveObj, RecursiveRefType};
+use crate::{RefType, TypedNodeRef, ValueOwner, ValueVisitor};
 
-/// A usage annotation for objects that are being constructed.
-pub struct Builder;
-
-impl RecursiveRefType for Builder {
-    type Ref<'a, T: 'a> = BuilderRef<T>;
-    type Value<'a, T: 'a> = T;
-}
-
-/// Reference type used while building a tree.  Any time the user
-/// pushes a node into the builder, they receive a reference.
-/// That reference may then be used to construct additional
-/// builder nodes.
-pub struct BuilderRef<T> {
-    pub(crate) abs_pos: usize,
-    pub(crate) _node: PhantomData<*const T>,
-}
-
-/// A usage annotation for objects that may be stored in the
-/// linearized structure.
-pub struct Storage;
-
-impl RecursiveRefType for Storage {
-    type Ref<'a, T: 'a> = StorageRef<T>;
-    type Value<'a, T: 'a> = T;
-}
-
-/// A reference in the linearized structure.
-pub struct StorageRef<T> {
-    /// The location of the referred-to node, relative to the node
-    /// holding the reference, in the direction of the start of the
-    /// `TypedTree`.
-    ///
-    /// `rel_pos` is unsigned, in order to avoid needing
-    /// loop-detection when walking through a graph.  In the
-    /// linearized structure, the index of a referent is strictly less
-    /// than the index of the node holding the reference, making
-    /// reference loops unrepresentable.
-    pub(crate) rel_pos: usize,
-    pub(crate) _node: PhantomData<*const T>,
-}
-
-/// A usage annotation for objects that contain a view into the full
-/// tree structure that they represent.
-pub struct Visiting<'a, Container: 'a> {
-    _a: PhantomData<&'a usize>,
-    _c: PhantomData<*const Container>,
-}
-
-/// Relative backreference to earlier node.  Used to represent
-/// references into recursively-defined structures while traversing
-/// the graph.
-pub struct VisitingRef<'a, T, Container: 'a> {
-    /// The subgraph in which the reference points.  The referred-to
-    /// object is the last item in the view.
-    pub(crate) view: &'a [Container],
-    pub(crate) _phantom: PhantomData<*const T>,
-}
-
-impl<'b, Container> RecursiveRefType for Visiting<'b, Container> {
-    type Ref<'a, T: 'a> = VisitingRef<'b, T, Container>;
-    type Value<'a, T: 'a> = &'a T;
-}
-
-impl<T> BuilderRef<T> {
-    /// Convert the builder reference (absolute positioning) to a
-    /// storage reference (relative positioning).
-    pub fn to_storage(&self, new_pos: usize) -> StorageRef<T> {
-        let rel_pos = new_pos
-            .checked_sub(self.abs_pos)
-            .expect("Invalid reference type");
-        StorageRef {
-            rel_pos,
-            _node: PhantomData,
-        }
-    }
-}
-
-impl<T> StorageRef<T> {
-    /// Convert the storage reference (relative positioning without
-    /// view) to a visiting reference (relative positioning with
-    /// view).
-    pub fn to_visiting<'a, Container>(
-        &'a self,
-        view: &'a [Container],
-    ) -> VisitingRef<'a, T, Container> {
-        let index = view.len().checked_sub(self.rel_pos).unwrap_or(0);
-        VisitingRef {
-            view: &view[..index],
-            _phantom: PhantomData,
-        }
-    }
-}
-
-/// Implementation of Clone for any VisitingRef.
+/// A reference to an object, returned from [`Arena::push`]
 ///
-/// The #[derive(Clone)] macro can't be used here, because it requires
-/// that all generic parameters implement Clone.  Therefore, even
-/// though the T and Container parameters only appear as a copy-able
-/// reference and a copy-able PhantomData, the automatic
-/// implementation wouldn't be generated.
-impl<'a, T, Container> Clone for VisitingRef<'a, T, Container> {
+/// The lack of cycles is guaranteed by contruction, based on the
+/// following three rules.
+///
+/// 1. Each `BuilderRef` is the result of adding an object to the
+/// arena, returned by [`Arena::push`].
+///
+/// 2. Each new object must express references using `BuilderRef`.
+///
+/// 3. Objects in the [`Arena`] may not be modified.
+pub struct BuilderRef<Target = ()> {
+    pub(crate) abs_pos: usize,
+    pub(crate) phantom: PhantomData<Target>,
+}
+
+impl<Target> Clone for BuilderRef<Target> {
     fn clone(&self) -> Self {
+        Self {
+            abs_pos: self.abs_pos,
+            phantom: PhantomData,
+        }
+    }
+}
+impl<Target> Copy for BuilderRef<Target> {}
+impl<'ext> RefType<'ext> for BuilderRef {
+    type ValueRef = ValueOwner;
+    type Node<Target: 'ext> = BuilderRef<Target>;
+}
+impl<'ext, Target: 'ext> TypedNodeRef<'ext> for BuilderRef<Target> {
+    type Untyped = BuilderRef;
+    type Target = Target;
+
+    fn strip_type(&self) -> Self::Untyped {
+        BuilderRef {
+            abs_pos: self.abs_pos,
+            phantom: PhantomData,
+        }
+    }
+}
+
+/// A reference to an object, stored internally in [`Arena`]
+///
+/// The lack of cycles is guaranteed by construction.  Each
+/// `StorageRef` may only point to objects that are located earlier in
+/// the [`Arena`]'s internal storage.  Since following a reference
+/// must result in a strictly smaller index within the internal
+/// storage, no reference may lead back to the original node.
+pub struct StorageRef<Target = ()> {
+    pub(crate) rel_pos: usize,
+    pub(crate) phantom: PhantomData<Target>,
+}
+impl<Target> Clone for StorageRef<Target> {
+    fn clone(&self) -> Self {
+        StorageRef {
+            rel_pos: self.rel_pos,
+            phantom: PhantomData,
+        }
+    }
+}
+impl<Target> Copy for StorageRef<Target> {}
+
+impl<'ext> RefType<'ext> for StorageRef {
+    type ValueRef = ValueOwner;
+    type Node<Target: 'ext> = StorageRef<Target>;
+}
+impl<'ext, Target: 'ext> TypedNodeRef<'ext> for StorageRef<Target> {
+    type Untyped = StorageRef;
+    type Target = Target;
+
+    fn strip_type(&self) -> Self::Untyped {
+        StorageRef {
+            rel_pos: self.rel_pos,
+            phantom: PhantomData,
+        }
+    }
+}
+
+/// A reference to an object, exposed while traversing a tree
+///
+/// Each `VisitingRef` contains a reference to a slice of contiguous
+/// memory.  The last element of the slice is the referred-to object,
+/// and the slice contains all objects that may be referenced,
+/// directly or indirectly, by the referred-to object.  Following a
+/// reference requires constructing a new `VisitingRef`, which holds a
+/// subslice of the original view.  Since the slice of a sub-object
+/// must be strictly smaller than an object's slice, no reference can
+/// return the original object, making cycles unrepresentable.
+pub struct VisitingRef<'view, Container, Target = ()> {
+    pub(crate) view: &'view [Container],
+    pub(crate) phantom: PhantomData<&'view Target>,
+}
+impl<'view, Container, Target> Clone for VisitingRef<'view, Container, Target> {
+    fn clone(&self) -> Self {
+        Self {
+            view: self.view,
+            phantom: PhantomData,
+        }
+    }
+}
+impl<'view, Container, Target> Copy for VisitingRef<'view, Container, Target> {}
+impl<'ext: 'view, 'view, Container> RefType<'ext> for VisitingRef<'view, Container> {
+    type ValueRef = ValueVisitor<'view>;
+    type Node<Target: 'ext> = VisitingRef<'view, Container, Target>;
+}
+impl<'ext: 'view, 'view, Container, Target: 'ext> TypedNodeRef<'ext>
+    for VisitingRef<'view, Container, Target>
+{
+    type Untyped = VisitingRef<'view, Container>;
+    type Target = Target;
+
+    fn strip_type(&self) -> Self::Untyped {
         VisitingRef {
             view: self.view,
-            _phantom: self._phantom,
+            phantom: PhantomData,
         }
     }
-}
-
-impl<'a, T, Container> Copy for VisitingRef<'a, T, Container> {}
-
-impl<'a, NodeType, Container> Display for VisitingRef<'a, NodeType, Container>
-where
-    NodeType: RecursiveObj<'a, RefType = Storage>,
-    Container: ContainerOf<NodeType>,
-    <NodeType::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>: Display,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.borrow().unwrap())
-    }
-}
-
-impl<'a, NodeType, Container> VisitingRef<'a, NodeType, Container> {
-    /// Recurse down a level of the graph
-    ///
-    /// When visiting a recursive graph, recursive references are
-    /// represented as `VisitingRef` instances.  Borrowing the
-    /// reference constructs an instance of the pointed-to enum, with
-    /// further recursion represented by `VisitingRef`.
-    pub fn borrow(
-        &self,
-    ) -> Result<<NodeType::Family as RecursiveFamily>::Obj<'a, Visiting<'a, Container>>, graph::Error>
-    where
-        NodeType: RecursiveObj<'a, RefType = Storage>,
-        Container: ContainerOf<NodeType>,
-    {
-        let container: &Container = self.view.last().ok_or(graph::Error::EmptyExpression)?;
-        let node: &NodeType = container.from_container()?;
-        let view = self.view;
-        let live_ref = <NodeType::Family as RecursiveFamily>::storage_to_visiting(node, view);
-        Ok(live_ref)
-    }
-
-    // pub fn equivalent_structure<OtherContainer>(
-    //     &self,
-    //     other: VisitingRef<'a, NodeType, OtherContainer>,
-    // ) -> bool {
-    //     todo!()
-    // }
 }

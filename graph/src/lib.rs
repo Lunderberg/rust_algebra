@@ -14,14 +14,20 @@ extern crate self as graph;
 mod error;
 pub use error::*;
 
+mod utility_traits;
+pub use utility_traits::*;
+
 mod recursive_types;
 pub use recursive_types::*;
 
 mod reference_types;
 pub use reference_types::*;
 
-mod typed_tree;
-pub use typed_tree::*;
+mod reference_converters;
+use reference_converters::*;
 
-mod builder;
-pub use builder::*;
+mod visitor_trait;
+pub use visitor_trait::*;
+
+mod arena;
+pub use arena::*;

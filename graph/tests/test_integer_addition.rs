@@ -1,6 +1,4 @@
-// use graph::{ContainerOf, Visiting};
-// use graph_derive::recursive_graph;
-use graph::{Builder, ContainerOf, TypedTree, Visiting};
+use graph::{Arena, Visitable};
 use graph_derive::recursive_graph;
 
 #[recursive_graph]
@@ -11,11 +9,11 @@ mod expr {
     }
 }
 
-impl<'a, Container: ContainerOf<expr::IntExpr<'a>>> expr::IntExpr<'a, Visiting<'a, Container>> {
+impl<'view, V: expr::visitor::IntExpr<'view>> expr::IntExpr<V> {
     fn eval(&self) -> i64 {
         match self {
             Self::Int(val) => **val,
-            Self::Add(a, b) => a.borrow().unwrap().eval() + b.borrow().unwrap().eval(),
+            Self::Add(a, b) => a.borrow().eval() + b.borrow().eval(),
         }
     }
 }
@@ -23,13 +21,12 @@ impl<'a, Container: ContainerOf<expr::IntExpr<'a>>> expr::IntExpr<'a, Visiting<'
 #[test]
 fn eval() {
     use expr::IntExpr;
-    let expression: TypedTree<IntExpr> = {
-        let mut builder = Builder::new();
-        let a = builder.push(IntExpr::Int(5));
-        let b = builder.push(IntExpr::Int(10));
-        let _c = builder.push(IntExpr::Add(a, b));
-        builder.into()
-    };
-    let root_node: expr::IntExpr<_> = expression.root().borrow().unwrap();
+    let expression = Arena::build(|arena| {
+        let a = arena.push(IntExpr::Int(5));
+        let b = arena.push(IntExpr::Int(10));
+        let c = arena.push(IntExpr::Add(a, b));
+        c
+    });
+    let root_node: expr::IntExpr<_> = expression.visit_root().borrow();
     assert_eq!(root_node.eval(), 15);
 }

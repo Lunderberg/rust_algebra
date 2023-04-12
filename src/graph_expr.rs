@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use graph::RecursiveRefType;
+use graph::RefType;
 use graph_derive::recursive_graph;
 
 #[recursive_graph]
@@ -42,7 +42,7 @@ pub(crate) trait BinaryOperator {
     fn precedence(&self) -> Option<(OperatorPrecedence, &str)>;
 }
 
-impl<'a, R: RecursiveRefType> BinaryOperator for expr::IntExpr<'a, R> {
+impl<'a, R: RefType> BinaryOperator for expr::IntExpr<'a, R> {
     fn precedence(&self) -> Option<(OperatorPrecedence, &str)> {
         match self {
             expr::IntExpr::Int(_) => None,

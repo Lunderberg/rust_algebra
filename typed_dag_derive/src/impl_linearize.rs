@@ -292,7 +292,7 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
                 }
             } else {
                 parse_quote! {
-                    <Ref::ValueRef as ::graph::ValueRefType<#ext_lifetime>>
+                    <Ref::ValueRef as ::typed_dag::ValueRefType<#ext_lifetime>>
                         ::Value<#ty>
                 }
             }
@@ -307,7 +307,7 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
 
     item_enum.generics = parse_quote! {
         <#(#generic_params,)*
-         #ref_type_param: ::graph::RefType<#ext_lifetime> = ::graph::StorageRef
+         #ref_type_param: ::typed_dag::RefType<#ext_lifetime> = ::typed_dag::StorageRef
          >
     };
 
@@ -325,9 +325,9 @@ fn generate_recursive_obj_impl<'a>(info: &'a EnumInfo) -> impl Iterator<Item = s
 
     let item = parse_quote! {
         impl<#(#generic_params,)*
-             #ref_type_param: ::graph::RefType<#ext_lifetime>
+             #ref_type_param: ::typed_dag::RefType<#ext_lifetime>
              >
-            ::graph::RecursiveObj<#ext_lifetime> for
+            ::typed_dag::RecursiveObj<#ext_lifetime> for
             #ident<#(#generic_args,)* #ref_type_param> {
                 type Family = #ident<#(#generic_args),*>;
                 type Ref = #ref_type_param;
@@ -395,10 +395,10 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
 
     let recursive_family_impl = parse_quote! {
         impl<#(#generic_params,)*>
-            ::graph::RecursiveFamily<#ext_lifetime>
+            ::typed_dag::RecursiveFamily<#ext_lifetime>
             for #ident<#(#generic_args,)*>
         {
-            type Sibling<#ref_type_param: ::graph::RefType<#ext_lifetime>>
+            type Sibling<#ref_type_param: ::typed_dag::RefType<#ext_lifetime>>
                 = #ident<#(#generic_args,)* #ref_type_param>;
 
             fn convert<FromRef, ToRef, Converter>(
@@ -406,15 +406,15 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
                 converter: Converter,
             ) -> Self::Sibling<ToRef>
             where Self: Sized,
-                  Converter: ::graph::RefConverter<#ext_lifetime,
+                  Converter: ::typed_dag::RefConverter<#ext_lifetime,
                                                    FromRef = FromRef,
                                                    ToRef = ToRef>,
 
-                  FromRef: ::graph::RefType<#ext_lifetime,
-                                            ValueRef = ::graph::ValueOwner>,
+                  FromRef: ::typed_dag::RefType<#ext_lifetime,
+                                            ValueRef = ::typed_dag::ValueOwner>,
 
-                  ToRef: ::graph::RefType<#ext_lifetime,
-                                          ValueRef = ::graph::ValueOwner>,
+                  ToRef: ::typed_dag::RefType<#ext_lifetime,
+                                          ValueRef = ::typed_dag::ValueOwner>,
             {
                 match from_obj {
                     #( #convert_arms )*
@@ -429,15 +429,15 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
                 #ext_lifetime: #view_lifetime,
                 Self: Sized,
 
-                Converter: ::graph::RefConverter<#ext_lifetime,
+                Converter: ::typed_dag::RefConverter<#ext_lifetime,
                                                  FromRef = FromRef,
                                                  ToRef = ToRef>,
 
-                FromRef: ::graph::RefType<#ext_lifetime,
-                                          ValueRef = ::graph::ValueOwner>,
+                FromRef: ::typed_dag::RefType<#ext_lifetime,
+                                          ValueRef = ::typed_dag::ValueOwner>,
 
-                ToRef: ::graph::RefType<#ext_lifetime,
-                                        ValueRef = ::graph::ValueVisitor<#view_lifetime>>,
+                ToRef: ::typed_dag::RefType<#ext_lifetime,
+                                        ValueRef = ::typed_dag::ValueVisitor<#view_lifetime>>,
             {
                 match from_obj {
                     #( #view_arms )*
@@ -504,9 +504,9 @@ fn generate_container_impl(info: &EnumInfo) -> impl Iterator<Item = syn::Item> +
 
             let try_as_ref_impl = parse_quote! {
                 impl<#(#generic_params),*>
-                    ::graph::TryAsRef<#ref_enum>
+                    ::typed_dag::TryAsRef<#ref_enum>
                     for #ident<#(#generic_args),*> {
-                        type Error = ::graph::Error;
+                        type Error = ::typed_dag::Error;
                         fn try_as_ref(&self) -> Result<&#ref_enum, Self::Error> {
                             match self {
                                 Self::#ref_ident(val) => Ok(val),
@@ -545,7 +545,7 @@ fn generate_default_container_impl(info: &EnumInfo) -> impl Iterator<Item = syn:
     let generic_args = info.generic_args();
 
     let item = parse_quote! {
-        impl<#(#generic_params),*> ::graph::HasDefaultContainer
+        impl<#(#generic_params),*> ::typed_dag::HasDefaultContainer
             for super::generic_enum::#ident<#(#generic_args),*> {
             type Container = #ident<#(#generic_args),*>;
         }
@@ -593,10 +593,10 @@ fn generate_visitor_trait(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + 
     let visitor_of_bounds = info.referenced_enums.iter().map(|ref_enum| {
         let ref_ident = &ref_enum.ident;
         parse_quote! {
-            Self: ::graph::VisitorOf<
+            Self: ::typed_dag::VisitorOf<
                     #ext_lifetime,
                 super::generic_enum::#ref_ident<#(#obj_args),*>,
-                ValueRef = ::graph::ValueVisitor<#view_lifetime>
+                ValueRef = ::typed_dag::ValueVisitor<#view_lifetime>
                     >
         }
     });

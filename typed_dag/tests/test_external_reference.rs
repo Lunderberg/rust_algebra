@@ -1,7 +1,7 @@
-use graph::{Arena, Visitable};
-use graph_derive::recursive_graph;
+use typed_dag::{Arena, Visitable};
+use typed_dag_derive::typed_dag;
 
-#[recursive_graph]
+#[typed_dag]
 mod expr {
     enum IntExpr<'a> {
         Int(&'a i64),

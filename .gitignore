@@ -1,3 +1,3 @@
 /target
-graph_derive/target
-graph/target
+typed_dag_derive/target
+typed_dag/target

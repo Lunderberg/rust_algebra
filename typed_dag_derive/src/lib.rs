@@ -19,7 +19,7 @@ pub fn linearize_recursive_enum_types(
 }
 
 #[proc_macro_attribute]
-pub fn recursive_graph(
+pub fn typed_dag(
     _attr: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {

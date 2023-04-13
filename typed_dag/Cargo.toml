@@ -1,16 +1,16 @@
 [package]
-name = "graph"
+name = "typed_dag"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "graph"
+name = "typed_dag"
 
 [dependencies]
 thiserror = "*"
 # itertools = "*"
 
 [dev-dependencies]
-graph_derive = { path = "../graph_derive" }
+typed_dag_derive = { path = "../typed_dag_derive" }

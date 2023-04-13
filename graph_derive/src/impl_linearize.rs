@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use proc_macro2::Span;
 use quote::{format_ident, quote, ToTokens};
 use syn::{fold::Fold, parse_macro_input, parse_quote};
 
@@ -8,10 +9,7 @@ use itertools::Itertools;
 struct EnumInfo {
     item_enum: syn::ItemEnum,
     referenced_enums: Vec<syn::ItemEnum>,
-    ext_lifetime: syn::Lifetime,
-    ref_type_param: syn::Type,
-    generic_params: Vec<syn::GenericParam>,
-    generic_args: Vec<syn::GenericArgument>,
+    num_lifetimes: usize,
 }
 
 impl EnumInfo {
@@ -34,6 +32,146 @@ impl EnumInfo {
             false
         }
     }
+
+    fn type_params(&self) -> impl Iterator<Item = syn::TypeParam> + '_ {
+        self.item_enum
+            .generics
+            .params
+            .iter()
+            .filter_map(|param| match param {
+                syn::GenericParam::Type(type_param) => Some(type_param),
+                _ => None,
+            })
+            .cloned()
+    }
+
+    fn ref_type_param(&self) -> syn::TypeParam {
+        let type_params: HashSet<_> = self.type_params().map(|param| param.ident).collect();
+        std::iter::empty()
+            .chain(std::iter::once(parse_quote! { Ref }))
+            .chain((1..).map(|i| format_ident!("Ref_{i}")))
+            .find(|ident| !type_params.contains(ident))
+            .map(|ident| parse_quote! {#ident})
+            .unwrap()
+    }
+
+    fn lifetime_params(&self) -> impl Iterator<Item = syn::Lifetime> + '_ {
+        self.item_enum
+            .generics
+            .params
+            .iter()
+            .filter_map(|param| match param {
+                syn::GenericParam::Lifetime(lifetime_def) => Some(lifetime_def.lifetime.clone()),
+                _ => None,
+            })
+    }
+
+    fn nonconflicting_lifetime(&self, name: &str) -> syn::Lifetime {
+        let lifetime_params: HashSet<_> = self.lifetime_params().collect();
+        std::iter::empty()
+            .chain(std::iter::once(format!("'{name}")))
+            .chain((1..).map(|i| format!("'{name}_{i}")))
+            .map(|name| syn::Lifetime::new(&name, Span::call_site()))
+            .find(|lifetime| !lifetime_params.contains(lifetime))
+            .unwrap()
+    }
+
+    fn _new_lifetime(&self, name: syn::Lifetime) -> Option<syn::LifetimeDef> {
+        let lifetime_params: HashSet<_> = self.lifetime_params().collect();
+        match lifetime_params.len() {
+            0 | 1 => None,
+            _ => std::iter::empty::<syn::LifetimeDef>()
+                .chain(std::iter::once(parse_quote! {#name}))
+                .chain(
+                    (1..)
+                        .map(|i| format_ident!("{name}_{i}"))
+                        .map(|full_name| parse_quote! { #full_name }),
+                )
+                .find(|lifetime_def| !lifetime_params.contains(&lifetime_def.lifetime)),
+        }
+    }
+
+    fn new_ext_lifetime(&self) -> Option<syn::Lifetime> {
+        match self.num_lifetimes {
+            0 | 1 => None,
+            _ => Some(self.nonconflicting_lifetime("ext")),
+        }
+    }
+
+    // fn new_view_lifetime(&self) -> Option<syn::LifetimeDef> {
+    //     self._new_lifetime(parse_quote! { 'view })
+    // }
+
+    fn ext_lifetime(&self) -> syn::Lifetime {
+        match self.num_lifetimes {
+            0 => parse_quote! {'static},
+            1 => self.lifetime_params().next().unwrap(),
+            _ => self.new_ext_lifetime().unwrap(),
+        }
+    }
+
+    // fn view_lifetime(&self) -> syn::Lifetime {
+    //     self.new_view_lifetime()
+    //         .map(|lifetime_def| lifetime_def.lifetime)
+    //         .or_else(|| self.lifetime_params().next())
+    //         .unwrap_or_else(|| parse_quote! {'view})
+    // }
+
+    fn _generic_params(&self) -> impl Iterator<Item = syn::GenericParam> + '_ {
+        std::iter::empty()
+            .chain(
+                self.new_ext_lifetime()
+                    .into_iter()
+                    .map(|lifetime| syn::LifetimeDef::new(lifetime).into()),
+            )
+            .chain(self.item_enum.generics.params.iter().cloned())
+    }
+
+    fn generic_params(&self) -> Vec<syn::GenericParam> {
+        self._generic_params().collect()
+    }
+
+    // fn generic_params_with_view(&self) -> Vec<syn::GenericParam> {
+    //     let view = self.new_view_lifetime();
+    //     self._generic_params()
+    //         .map(|param| -> syn::GenericParam {
+    //             match (view.clone(), param) {
+    //                 (Some(view_def), syn::GenericParam::Lifetime(mut lifetime_def)) => {
+    //                     lifetime_def.bounds.push(view_def.lifetime);
+    //                     lifetime_def.into()
+    //                 }
+    //                 (_, param) => param,
+    //             }
+    //         })
+    //         .chain(view.clone().into_iter().map_into())
+    //         .collect()
+    // }
+
+    fn _param_to_argument(param: syn::GenericParam) -> syn::GenericArgument {
+        match param {
+            syn::GenericParam::Type(ty) => {
+                let ident = ty.ident;
+                parse_quote! {#ident}
+            }
+            syn::GenericParam::Lifetime(def) => syn::GenericArgument::Lifetime(def.lifetime),
+            syn::GenericParam::Const(val) => {
+                let ident = val.ident;
+                parse_quote! {#ident}
+            }
+        }
+    }
+
+    fn generic_args(&self) -> Vec<syn::GenericArgument> {
+        self._generic_params()
+            .map(Self::_param_to_argument)
+            .collect()
+    }
+    // fn generic_args_with_view(&self) -> Vec<syn::GenericArgument> {
+    //     self._generic_params()
+    //         .chain(self.new_view_lifetime().into_iter().map_into())
+    //         .map(Self::_param_to_argument)
+    //         .collect()
+    // }
 }
 
 fn collect_annotated_enums(mut item_mod: syn::ItemMod) -> (syn::ItemMod, Vec<EnumInfo>) {
@@ -104,92 +242,20 @@ fn collect_annotated_enums(mut item_mod: syn::ItemMod) -> (syn::ItemMod, Vec<Enu
                     .map(|ident| lookup.get(&ident).expect("Ident not in map").clone())
                     .collect();
 
-                let lifetime_params: Vec<_> = item_enum
+                let num_lifetimes = item_enum
                     .generics
                     .params
                     .iter()
-                    .cloned()
-                    .filter_map(|param| match param {
-                        syn::GenericParam::Lifetime(lifetime_def) => Some(lifetime_def.lifetime),
-                        _ => None,
+                    .filter(|param| match param {
+                        syn::GenericParam::Lifetime(_) => true,
+                        _ => false,
                     })
-                    .collect();
-                let type_params: Vec<syn::Type> = item_enum
-                    .generics
-                    .params
-                    .iter()
-                    .cloned()
-                    .filter_map(|param| -> Option<syn::Type> {
-                        match param {
-                            syn::GenericParam::Type(type_param) => {
-                                let ident = type_param.ident;
-                                Some(parse_quote! {#ident})
-                            }
-                            _ => None,
-                        }
-                    })
-                    .collect();
-
-                let ext_lifetime: syn::Lifetime = match lifetime_params.len() {
-                    0 => parse_quote! { 'static },
-                    1 => lifetime_params[0].clone(),
-                    _ => std::iter::once(parse_quote! { 'ext })
-                        .chain(
-                            (1..)
-                                .map(|i| format_ident!("'ext_{i}"))
-                                .map(|name| parse_quote! { #name }),
-                        )
-                        .find(|lifetime| !lifetime_params.contains(lifetime))
-                        .unwrap(),
-                };
-
-                let ext_lifetime_param: Option<syn::LifetimeDef> = (lifetime_params.len() == 2)
-                    .then(|| {
-                        parse_quote! {
-                            #ext_lifetime: #(#lifetime_params)+*
-                        }
-                    });
-
-                let ref_type_param: syn::Type = std::iter::once(parse_quote! { Ref })
-                    .chain(
-                        (1..)
-                            .map(|i| format_ident!("Ref_{i}"))
-                            .map(|name| parse_quote! { #name }),
-                    )
-                    .find(|ty| !type_params.contains(ty))
-                    .unwrap();
-
-                let generic_params: Vec<_> = std::iter::empty()
-                    .chain(ext_lifetime_param.into_iter().map_into())
-                    .chain(item_enum.generics.params.iter().cloned())
-                    .collect();
-
-                let generic_args = generic_params
-                    .iter()
-                    .map(|param| match param {
-                        syn::GenericParam::Type(type_def) => {
-                            let ident = &type_def.ident;
-                            let type_arg: syn::Type = parse_quote! { #ident };
-                            syn::GenericArgument::Type(type_arg)
-                        }
-                        syn::GenericParam::Lifetime(lifetime_def) => {
-                            syn::GenericArgument::Lifetime(lifetime_def.lifetime.clone())
-                        }
-                        syn::GenericParam::Const(const_def) => {
-                            let ident = &const_def.ident;
-                            let const_arg: syn::Expr = parse_quote! { #ident };
-                            syn::GenericArgument::Const(const_arg)
-                        }
-                    })
-                    .collect();
+                    .count();
 
                 EnumInfo {
                     item_enum,
                     referenced_enums,
-                    ext_lifetime,
-                    ref_type_param,
-                    generic_params,
-                    generic_args,
+                    num_lifetimes,
                 }
             })
             .collect();
@@ -219,7 +285,7 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
 
     impl Fold for Mutator<'_> {
         fn fold_type(&mut self, ty: syn::Type) -> syn::Type {
-            let ext_lifetime = &self.info.ext_lifetime;
+            let ext_lifetime = &self.info.ext_lifetime();
             if self.info.is_recursive_type(&ty) {
                 parse_quote! {
                     Ref::Node<#ty>
@@ -233,9 +299,9 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
         }
     }
 
-    let generic_params = &info.generic_params;
-    let ext_lifetime = &info.ext_lifetime;
-    let ref_type_param = &info.ref_type_param;
+    let generic_params = &info.generic_params();
+    let ext_lifetime = info.ext_lifetime();
+    let ref_type_param = info.ref_type_param();
 
     let mut item_enum: syn::ItemEnum = Mutator { info }.fold_item_enum(info.item_enum.clone());
 
@@ -251,11 +317,11 @@ fn generate_generic_recursive_enum<'a>(info: &'a EnumInfo) -> impl Iterator<Item
 }
 
 fn generate_recursive_obj_impl<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn::Item> + 'a {
-    let ext_lifetime = &info.ext_lifetime;
+    let ext_lifetime = info.ext_lifetime();
     let ident = &info.item_enum.ident;
-    let ref_type_param = &info.ref_type_param;
-    let generic_params = &info.generic_params;
-    let generic_args = &info.generic_args;
+    let ref_type_param = info.ref_type_param();
+    let generic_params = info.generic_params();
+    let generic_args = info.generic_args();
 
     let item = parse_quote! {
         impl<#(#generic_params,)*
@@ -273,10 +339,12 @@ fn generate_recursive_obj_impl<'a>(info: &'a EnumInfo) -> impl Iterator<Item = s
 
 fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn::Item> + 'a {
     let ident = &info.item_enum.ident;
-    let ext_lifetime = &info.ext_lifetime;
-    let ref_type_param = &info.ref_type_param;
-    let generic_args = &info.generic_args;
-    let generic_params = &info.generic_params;
+    let ext_lifetime = info.ext_lifetime();
+    let ref_type_param = info.ref_type_param();
+    let generic_args = info.generic_args();
+    let generic_params = info.generic_params();
+
+    let view_lifetime = info.nonconflicting_lifetime("view");
 
     let (convert_arms, view_arms) = {
         let arm_builder = |update_rhs: fn(&syn::Ident) -> syn::Expr| -> Vec<syn::Arm> {
@@ -326,7 +394,10 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
     };
 
     let recursive_family_impl = parse_quote! {
-        impl<#(#generic_params,)*> ::graph::RecursiveFamily<#ext_lifetime> for #ident {
+        impl<#(#generic_params,)*>
+            ::graph::RecursiveFamily<#ext_lifetime>
+            for #ident<#(#generic_args,)*>
+        {
             type Sibling<#ref_type_param: ::graph::RefType<#ext_lifetime>>
                 = #ident<#(#generic_args,)* #ref_type_param>;
 
@@ -350,12 +421,12 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
                 }
             }
 
-            fn view<'view, FromRef, ToRef, Converter>(
-                from_obj: &'view Self::Sibling<FromRef>,
+            fn view<#view_lifetime, FromRef, ToRef, Converter>(
+                from_obj: &#view_lifetime Self::Sibling<FromRef>,
                 converter: Converter,
             ) -> Self::Sibling<ToRef>
             where
-                #ext_lifetime: 'view,
+                #ext_lifetime: #view_lifetime,
                 Self: Sized,
 
                 Converter: ::graph::RefConverter<#ext_lifetime,
@@ -366,7 +437,7 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
                                           ValueRef = ::graph::ValueOwner>,
 
                 ToRef: ::graph::RefType<#ext_lifetime,
-                                        ValueRef = ::graph::ValueVisitor<'view>>,
+                                        ValueRef = ::graph::ValueVisitor<#view_lifetime>>,
             {
                 match from_obj {
                     #( #view_arms )*
@@ -381,20 +452,27 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
 
 fn generate_container_enum(info: &EnumInfo) -> impl Iterator<Item = syn::Item> {
     let ident = &info.item_enum.ident;
-    let referenced_idents: Vec<_> = info
+    let generic_params = info.generic_params();
+    let generic_args = info.generic_args();
+
+    // TODO: Use the generic arguments appropriate for each
+    // referred-to node, rather than passing all the generic
+    // arguments.
+    let container_variants: Vec<syn::Variant> = info
         .referenced_enums
         .iter()
-        .map(|ref_enum| &ref_enum.ident)
+        .map(|ref_enum| {
+            let ref_ident = &ref_enum.ident;
+
+            parse_quote! {
+                #ref_ident ( super::generic_enum::#ref_ident<#(#generic_args),*> )
+            }
+        })
         .collect();
-    let generic_params = &info.generic_params;
 
     let item = parse_quote! {
         pub enum #ident<#(#generic_params),*> {
-            #(
-                #referenced_idents (
-                    super::generic_enum::#referenced_idents
-                ),
-            )*
+            #(#container_variants,)*
         }
     };
 
@@ -403,60 +481,68 @@ fn generate_container_enum(info: &EnumInfo) -> impl Iterator<Item = syn::Item> {
 
 fn generate_container_impl(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + '_ {
     let ident = &info.item_enum.ident;
-    let generic_params = &info.generic_params;
+    let generic_params = info.generic_params();
+    let generic_args = info.generic_args();
 
-    info.referenced_enums.iter().map(move |ref_enum| {
-        let ref_ident = &ref_enum.ident;
-        let ref_ident_str = format!("{ref_ident}");
+    info.referenced_enums
+        .iter()
+        .map(move |ref_enum| {
+            let ref_ident = &ref_enum.ident;
+            let ref_ident_str = format!("{ref_ident}");
 
-        let (other_node_idents, other_node_str): (Vec<_>, Vec<_>) = info
-            .referenced_enums
-            .iter()
-            .map(|other_enum| &other_enum.ident)
-            .filter(|other_ident| other_ident != &ref_ident)
-            .map(|other_ident| (other_ident.clone(), format!("{other_ident}")))
-            .unzip();
+            let (other_node_idents, other_node_str): (Vec<_>, Vec<_>) = info
+                .referenced_enums
+                .iter()
+                .map(|other_enum| &other_enum.ident)
+                .filter(|other_ident| other_ident != &ref_ident)
+                .map(|other_ident| (other_ident.clone(), format!("{other_ident}")))
+                .unzip();
 
-        let try_as_ref_impl = parse_quote! {
-            impl<#(#generic_params),*>
-                ::graph::TryAsRef<super::generic_enum::#ref_ident>
-                for #ident {
-                    type Error = ::graph::Error;
-                    fn try_as_ref(&self) -> Result<&super::generic_enum::#ref_ident, Self::Error> {
-                        match self {
-                            Self::#ref_ident(val) => Ok(val),
-                            #(
-                                Self::#other_node_idents =>
-                                    Err(Self::Error::IncorrectType{
-                                        expected: #ref_ident_str,
-                                        actual: #other_node_str,
-                                    }),
-                            )*
+            let ref_enum = quote! {
+                super::generic_enum::#ref_ident<#(#generic_args),*>
+            };
+
+            let try_as_ref_impl = parse_quote! {
+                impl<#(#generic_params),*>
+                    ::graph::TryAsRef<#ref_enum>
+                    for #ident<#(#generic_args),*> {
+                        type Error = ::graph::Error;
+                        fn try_as_ref(&self) -> Result<&#ref_enum, Self::Error> {
+                            match self {
+                                Self::#ref_ident(val) => Ok(val),
+                                #(
+                                    Self::#other_node_idents =>
+                                        Err(Self::Error::IncorrectType{
+                                            expected: #ref_ident_str,
+                                            actual: #other_node_str,
+                                        }),
+                                )*
+                            }
                         }
                     }
-                }
-        };
+            };
 
-        let from_impl = parse_quote! {
-            impl<#(#generic_params),*>
-                From<super::generic_enum::#ref_ident>
-                for #ident {
-                    fn from(obj: super::generic_enum::#ref_ident) -> Self {
-                        Self::#ref_ident(obj)
+            let from_impl = parse_quote! {
+                impl<#(#generic_params),*>
+                    From<#ref_enum>
+                    for #ident<#(#generic_args),*> {
+                        fn from(obj: #ref_enum) -> Self {
+                            Self::#ref_ident(obj)
+                        }
                     }
-                }
 
 
-        };
+            };
 
-        vec![try_as_ref_impl, from_impl].into_iter()
-    }).flatten()
+            vec![try_as_ref_impl, from_impl].into_iter()
+        })
+        .flatten()
 }
 
 fn generate_default_container_impl(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + '_ {
     let ident = &info.item_enum.ident;
-    let generic_params = &info.generic_params;
-    let generic_args = &info.generic_args;
+    let generic_params = info.generic_params();
+    let generic_args = info.generic_args();
 
     let item = parse_quote! {
         impl<#(#generic_params),*> ::graph::HasDefaultContainer
@@ -470,35 +556,73 @@ fn generate_default_container_impl(info: &EnumInfo) -> impl Iterator<Item = syn:
 
 fn generate_visitor_trait(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + '_ {
     let ident = &info.item_enum.ident;
-    let ext_lifetime = &info.ext_lifetime;
-    let generic_params = &info.generic_params;
-    let generic_args = &info.generic_args;
-    let referenced_idents: Vec<_> = info
-        .referenced_enums
-        .iter()
-        .map(|ref_enum| &ref_enum.ident)
+    let ext_lifetime = info.ext_lifetime();
+    let ref_type_param = info.ref_type_param();
+
+    let new_view_lifetime = match info.num_lifetimes {
+        1 => None,
+        _ => Some(info.nonconflicting_lifetime("view")),
+    };
+    let view_lifetime = new_view_lifetime
+        .clone()
+        .or_else(|| info.lifetime_params().next())
+        .unwrap();
+
+    let obj_args = info.generic_args();
+
+    let trait_params: Vec<_> = info
+        .generic_params()
+        .into_iter()
+        .chain(
+            new_view_lifetime
+                .iter()
+                .map(|lifetime| syn::LifetimeDef::new(lifetime.clone()).into()),
+        )
         .collect();
-    let ref_type_param = &info.ref_type_param;
+
+    let trait_args: Vec<_> = info
+        .generic_args()
+        .into_iter()
+        .chain(
+            new_view_lifetime
+                .iter()
+                .map(|lifetime| syn::GenericArgument::Lifetime(lifetime.clone())),
+        )
+        .collect();
+
+    let visitor_of_bounds = info.referenced_enums.iter().map(|ref_enum| {
+        let ref_ident = &ref_enum.ident;
+        parse_quote! {
+            Self: ::graph::VisitorOf<
+                    #ext_lifetime,
+                super::generic_enum::#ref_ident<#(#obj_args),*>,
+                ValueRef = ::graph::ValueVisitor<#view_lifetime>
+                    >
+        }
+    });
+    let lifetime_bounds = new_view_lifetime.iter().flat_map(|view| {
+        info.lifetime_params()
+            .map(move |lifetime| parse_quote! { #lifetime : #view })
+    });
+
+    let trait_bounds: Vec<syn::WherePredicate> = {
+        std::iter::empty()
+            .chain(visitor_of_bounds)
+            .chain(lifetime_bounds)
+            .collect()
+    };
 
     let trait_def = parse_quote! {
-        pub trait #ident<#(#generic_params,)* 'view>
+        pub trait #ident<#(#trait_params),*>
         where
-            #(
-            Self: ::graph::VisitorOf<#ext_lifetime,
-                                     super::generic_enum::#referenced_idents,
-                                     ValueRef = ::graph::ValueVisitor<'view>>,
-        )*
+            #( #trait_bounds, )*
         { }
     };
     let trait_impl = parse_quote! {
-        impl<#(#generic_params,)* 'view, #ref_type_param>
-            #ident<#(#generic_args,)* 'view> for #ref_type_param
+        impl<#(#trait_params,)* #ref_type_param>
+            #ident<#(#trait_args,)*> for #ref_type_param
         where
-            #(
-            Self: ::graph::VisitorOf<#ext_lifetime,
-                                     super::generic_enum::#referenced_idents,
-                                     ValueRef = ::graph::ValueVisitor<'view>>,
-        )*
+            #( #trait_bounds, )*
         {}
     };
 

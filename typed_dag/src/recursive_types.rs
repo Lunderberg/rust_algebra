@@ -106,12 +106,12 @@ impl<'ext: 'view, 'view> ValueRefType<'ext> for ValueVisitor<'view> {
 /// [`StorageRef`] and [`VisitingRef`] tags.
 ///
 /// The user-provided data structures can be further simplified using
-/// the [`typed_dag_derive`] macro, which also provides several trait
+/// the [`typed_dag`] macro, which also provides several trait
 /// implementations required for full use of the DAG.
 ///
-/// ```ignore
-/// // TODO: Pull in the macro definition from earlier implementations.
-/// #[typed_dag_derive]
+/// ```
+/// # use typed_dag_derive::typed_dag;
+/// #[typed_dag]
 /// mod expr {
 ///     enum IntExpr {
 ///         Int(i64),

@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use crate::OperatorPrecedence;
+
 #[derive(PartialEq, Eq, Debug)]
 pub struct Expr {
     pub(crate) items: Vec<Element>,
@@ -16,13 +18,6 @@ pub(crate) enum Element {
     Sub(usize, usize),
     Mul(usize, usize),
     Div(usize, usize),
-}
-
-#[derive(PartialOrd, Ord, PartialEq, Eq)]
-pub(crate) enum OldOperatorPrecedence {
-    Expr,
-    AddSub,
-    MulDiv,
 }
 
 impl<'a> SubExpr<'a> {
@@ -46,11 +41,11 @@ impl<'a> SubExpr<'a> {
 }
 
 impl Element {
-    fn precedence(&self) -> Option<OldOperatorPrecedence> {
+    fn precedence(&self) -> Option<OperatorPrecedence> {
         use Element::*;
         match self {
-            Add(_, _) | Sub(_, _) => Some(OldOperatorPrecedence::AddSub),
-            Mul(_, _) | Div(_, _) => Some(OldOperatorPrecedence::MulDiv),
+            Add(_, _) | Sub(_, _) => Some(OperatorPrecedence::AddSub),
+            Mul(_, _) | Div(_, _) => Some(OperatorPrecedence::MulDiv),
             Int(_) => None,
         }
     }

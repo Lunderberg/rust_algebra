@@ -1,33 +1,24 @@
 #![allow(dead_code)]
 
-use graph::RefType;
-use graph_derive::recursive_graph;
+use typed_dag::RefType;
+use typed_dag_derive::typed_dag;
 
-#[recursive_graph]
+#[typed_dag]
 pub mod expr {
-    // #[derive(Debug)]
-    pub enum IntExpr {
+    pub enum Numeric {
         Int(i64),
-        Add(IntExpr, IntExpr),
-        Sub(IntExpr, IntExpr),
-        Mul(IntExpr, IntExpr),
-        Div(IntExpr, IntExpr),
-    }
-
-    // #[derive(Debug)]
-    pub enum FloatExpr {
         Float(f64),
-        Add(FloatExpr, FloatExpr),
-        Sub(FloatExpr, FloatExpr),
+        Add(Numeric, Numeric),
+        Sub(Numeric, Numeric),
+        Mul(Numeric, Numeric),
+        Div(Numeric, Numeric),
     }
 
-    // #[derive(Debug)]
-    pub enum BoolExpr {
+    pub enum Boolean {
         Bool(bool),
-        IntEqual(IntExpr, IntExpr),
-        FloatEqual(FloatExpr, FloatExpr),
-        And(BoolExpr, BoolExpr),
-        Or(BoolExpr, BoolExpr),
+        Equal(Numeric, Numeric),
+        And(Boolean, Boolean),
+        Or(Boolean, Boolean),
     }
 }
 
@@ -42,14 +33,15 @@ pub(crate) trait BinaryOperator {
     fn precedence(&self) -> Option<(OperatorPrecedence, &str)>;
 }
 
-impl<'a, R: RefType> BinaryOperator for expr::IntExpr<'a, R> {
+impl<R: RefType<'static>> BinaryOperator for expr::Numeric<R> {
     fn precedence(&self) -> Option<(OperatorPrecedence, &str)> {
         match self {
-            expr::IntExpr::Int(_) => None,
-            expr::IntExpr::Add(_, _) => Some((OperatorPrecedence::AddSub, " + ")),
-            expr::IntExpr::Sub(_, _) => Some((OperatorPrecedence::AddSub, " - ")),
-            expr::IntExpr::Mul(_, _) => Some((OperatorPrecedence::MulDiv, "*")),
-            expr::IntExpr::Div(_, _) => Some((OperatorPrecedence::MulDiv, "/")),
+            expr::Numeric::Int(_) => None,
+            expr::Numeric::Float(_) => None,
+            expr::Numeric::Add(_, _) => Some((OperatorPrecedence::AddSub, " + ")),
+            expr::Numeric::Sub(_, _) => Some((OperatorPrecedence::AddSub, " - ")),
+            expr::Numeric::Mul(_, _) => Some((OperatorPrecedence::MulDiv, "*")),
+            expr::Numeric::Div(_, _) => Some((OperatorPrecedence::MulDiv, "/")),
         }
     }
 }

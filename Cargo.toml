@@ -8,8 +8,8 @@ edition = "2021"
 [dependencies]
 # itertools = "*"
 thiserror = "1.0.32"
-graph_derive = { path = "graph_derive" }
-graph = { path = "graph" }
+typed_dag_derive = { path = "typed_dag_derive" }
+typed_dag = { path = "typed_dag" }
 
 [lib]
 name = "algebra"

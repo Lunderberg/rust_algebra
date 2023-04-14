@@ -6,11 +6,9 @@ pub fn tree(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let call = tree_arg(orig);
 
     let stream = quote! {
-        {
-            let mut builder = ::graph::Builder::new();
-            #call;
-            builder.into()
-        }
+        ::typed_dag::Arena::build(|arena| {
+            #call
+        })
     };
 
     stream.into()
@@ -43,7 +41,7 @@ fn tree_arg(call: syn::ExprCall) -> syn::Expr {
     let statements: Vec<_> = statements.into_iter().flatten().collect();
 
     let builder_push = quote! {
-        builder.push( #func ( #(#args),* ) )
+        arena.push( #func ( #(#args),* ) )
     };
 
     let stream = if statements.is_empty() {
@@ -56,8 +54,6 @@ fn tree_arg(call: syn::ExprCall) -> syn::Expr {
             }
         }
     };
-
-    println!("Stream: {stream}");
 
     syn::parse2(stream).expect("Failed to parse generated Builder calls")
 }

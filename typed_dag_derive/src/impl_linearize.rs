@@ -502,7 +502,7 @@ fn generate_container_impl(info: &EnumInfo) -> impl Iterator<Item = syn::Item> +
                             match self {
                                 Self::#ref_ident(val) => Ok(val),
                                 #(
-                                    Self::#other_node_idents =>
+                                    Self::#other_node_idents(_) =>
                                         Err(Self::Error::IncorrectType{
                                             expected: #ref_ident_str,
                                             actual: #other_node_str,

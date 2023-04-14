@@ -1,26 +1,17 @@
 use std::fmt::{Display, Formatter};
 
 use algebra::{expr, BinaryOperator};
-use graph::{ContainerOf, Visiting};
+use typed_dag::Visitable;
 
-impl<'a, Container: ContainerOf<expr::IntExpr<'a>>> Display
-    for expr::IntExpr<'a, Visiting<'a, Container>>
-{
+impl<'view, V: expr::visitor::Numeric<'view>> Display for expr::Numeric<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            expr::IntExpr::Int(val) => write!(f, "{val}"),
-            expr::IntExpr::Add(lhs, rhs) => {
-                display_binary_op(self, f, lhs.borrow().unwrap(), rhs.borrow().unwrap())
-            }
-            expr::IntExpr::Sub(lhs, rhs) => {
-                display_binary_op(self, f, lhs.borrow().unwrap(), rhs.borrow().unwrap())
-            }
-            expr::IntExpr::Mul(lhs, rhs) => {
-                display_binary_op(self, f, lhs.borrow().unwrap(), rhs.borrow().unwrap())
-            }
-            expr::IntExpr::Div(lhs, rhs) => {
-                display_binary_op(self, f, lhs.borrow().unwrap(), rhs.borrow().unwrap())
-            }
+            expr::Numeric::Int(val) => write!(f, "{val}"),
+            expr::Numeric::Float(val) => write!(f, "{val}"),
+            expr::Numeric::Add(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            expr::Numeric::Sub(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            expr::Numeric::Mul(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            expr::Numeric::Div(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
         }
     }
 }

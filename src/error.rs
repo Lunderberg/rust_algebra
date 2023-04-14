@@ -15,7 +15,7 @@ pub enum Error {
     #[error("Not yet implemented: {0}")]
     NotImplemented(String),
     #[error("GraphError: {0}")]
-    GraphError(graph::Error),
+    GraphError(typed_dag::Error),
 }
 
 impl std::fmt::Debug for Error {
@@ -24,8 +24,8 @@ impl std::fmt::Debug for Error {
     }
 }
 
-impl From<graph::Error> for Error {
-    fn from(value: graph::Error) -> Self {
+impl From<typed_dag::Error> for Error {
+    fn from(value: typed_dag::Error) -> Self {
         Error::GraphError(value)
     }
 }

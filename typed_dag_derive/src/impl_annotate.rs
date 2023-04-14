@@ -1,9 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
-use proc_macro2::{Span, TokenStream};
-use quote::{quote, ToTokens};
-use syn::{fold::Fold, parse_macro_input, visit::Visit};
+use quote::ToTokens;
+use syn::{fold::Fold, parse_macro_input, parse_quote, visit::Visit};
 
 pub fn annotate_recursive_enums(
     _attr: proc_macro::TokenStream,
@@ -16,19 +15,6 @@ pub fn annotate_recursive_enums(
     let annotated = AnnotateEnums::new(indirect_references).fold_item_mod(orig);
 
     annotated.to_token_stream().into()
-}
-
-fn make_attr(name: &str, tokens: TokenStream) -> syn::Attribute {
-    let ident: syn::Ident = proc_macro2::Ident::new(name, Span::call_site());
-    let seg: syn::PathSegment = ident.into();
-    let path: syn::Path = seg.into();
-    syn::Attribute {
-        pound_token: syn::Token![#](Span::call_site()),
-        style: syn::AttrStyle::Outer,
-        bracket_token: syn::token::Bracket(Span::call_site()),
-        path,
-        tokens,
-    }
 }
 
 struct OrderedHash<T: Hash + Eq> {
@@ -186,10 +172,11 @@ impl Fold for AnnotateEnums {
             .iter()
             .map(|item_enum| &item_enum.ident)
             .collect();
-        let tokens = quote! { ( #(#indirect_references, )* ) }.into();
         item_enum
             .attrs
-            .push(make_attr("requires_graph_storage_type", tokens));
+            .push(parse_quote! { #[requires_graph_storage_type(
+                #(#indirect_references),*
+            )]});
         syn::fold::fold_item_enum(self, item_enum)
     }
 }

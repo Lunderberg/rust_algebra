@@ -76,11 +76,11 @@ impl EnumInfo {
             .unwrap()
     }
 
-    fn _new_lifetime(&self, name: syn::Lifetime) -> Option<syn::LifetimeDef> {
+    fn _new_lifetime(&self, name: syn::Lifetime) -> Option<syn::LifetimeParam> {
         let lifetime_params: HashSet<_> = self.lifetime_params().collect();
         match lifetime_params.len() {
             0 | 1 => None,
-            _ => std::iter::empty::<syn::LifetimeDef>()
+            _ => std::iter::empty::<syn::LifetimeParam>()
                 .chain(std::iter::once(parse_quote! {#name}))
                 .chain(
                     (1..)
@@ -122,7 +122,7 @@ impl EnumInfo {
             .chain(
                 self.new_ext_lifetime()
                     .into_iter()
-                    .map(|lifetime| syn::LifetimeDef::new(lifetime).into()),
+                    .map(|lifetime| syn::LifetimeParam::new(lifetime).into()),
             )
             .chain(self.item_enum.generics.params.iter().cloned())
     }
@@ -184,7 +184,7 @@ fn collect_annotated_enums(mut item_mod: syn::ItemMod) -> (syn::ItemMod, Vec<Enu
             syn::Item::Enum(item) => item
                 .attrs
                 .iter()
-                .any(|attr| is_attr(&attr.path, "requires_graph_storage_type")),
+                .any(|attr| is_attr(&attr.meta.path(), "requires_graph_storage_type")),
             _ => false,
         });
 
@@ -201,29 +201,20 @@ fn collect_annotated_enums(mut item_mod: syn::ItemMod) -> (syn::ItemMod, Vec<Enu
                 let referred: Vec<syn::Ident> = item
                     .attrs
                     .iter()
-                    .filter(|attr| is_attr(&attr.path, "requires_graph_storage_type"))
-                    .map(|attr| {
-                        match attr.parse_meta() {
-                            Ok(syn::Meta::List(meta_list)) => meta_list,
-                            _ => panic!("Incorrect graph storage format"),
-                        }
-                        .nested
-                        .into_iter()
-                        .map(|meta| -> syn::Path {
-                            match meta {
-                                syn::NestedMeta::Meta(syn::Meta::Path(path)) => path,
-                                _ => panic!("Incorrect graph storage format"),
-                            }
-                        })
-                        .map(|path| -> syn::Ident { path.segments.last().unwrap().ident.clone() })
+                    .filter(|attr| is_attr(&attr.meta.path(), "requires_graph_storage_type"))
+                    .flat_map(|attr| {
+                        attr.parse_args_with(
+                            syn::punctuated::Punctuated::<syn::Ident, syn::Token![,]>::parse_terminated,
+                        )
+                            .into_iter()
+                            .flatten()
                     })
-                    .flatten()
                     .collect();
 
                 item.attrs = item
                     .attrs
                     .into_iter()
-                    .filter(|attr| !is_attr(&attr.path, "requires_graph_storage_type"))
+                    .filter(|attr| !is_attr(&attr.meta.path(), "requires_graph_storage_type"))
                     .collect();
                 (item, referred)
             })
@@ -576,7 +567,7 @@ fn generate_visitor_trait(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + 
         .chain(
             new_view_lifetime
                 .iter()
-                .map(|lifetime| syn::LifetimeDef::new(lifetime.clone()).into()),
+                .map(|lifetime| syn::LifetimeParam::new(lifetime.clone()).into()),
         )
         .collect();
 

@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 # itertools = "*"
-thiserror = "*"
+thiserror = "1.0.32"
 graph_derive = { path = "graph_derive" }
 graph = { path = "graph" }
 

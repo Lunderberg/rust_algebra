@@ -9,8 +9,7 @@ edition = "2021"
 name = "typed_dag"
 
 [dependencies]
-thiserror = "*"
-# itertools = "*"
+thiserror = "1.0.0"
 
 [dev-dependencies]
 typed_dag_derive = { path = "../typed_dag_derive" }

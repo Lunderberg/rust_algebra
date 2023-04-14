@@ -1,3 +1,5 @@
 /target
 typed_dag_derive/target
 typed_dag/target
+typed_dag_derive/Cargo.lock
+typed_dag/Cargo.lock

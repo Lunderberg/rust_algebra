@@ -3,8 +3,13 @@ use thiserror::Error;
 #[derive(Error, Clone)]
 pub enum Error {
     #[error("Invalid reference {rel_pos} in subgraph of size {subgraph_size}")]
-    InvalidReference {
+    InvalidRelativeReference {
         rel_pos: usize,
+        subgraph_size: usize,
+    },
+    #[error("Invalid reference {abs_pos} when building subgraph of size {subgraph_size}")]
+    InvalidAbsoluteReference {
+        abs_pos: usize,
         subgraph_size: usize,
     },
     #[error("Expected type {expected}, but received {actual}")]

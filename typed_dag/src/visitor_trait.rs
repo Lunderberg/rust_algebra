@@ -1,5 +1,6 @@
 use crate::{
-    RecursiveFamily, RefType, StorageRef, StorageToVisiting, TryAsRef, TypedNodeRef, VisitingRef,
+    Error, RecursiveFamily, RefType, StorageRef, StorageToVisiting, TryAsRef, TypedNodeRef,
+    VisitingRef,
 };
 use std::fmt::Debug;
 
@@ -22,14 +23,14 @@ impl<'ext: 'view, 'view, Container, Target> VisitorOf<'ext, Target>
     for VisitingRef<'view, Container>
 where
     Target: RecursiveFamily<'ext>,
-    Container: TryAsRef<Target::Sibling<StorageRef>>,
+    Container: TryAsRef<Target::Sibling<StorageRef>, Error = Error>,
     Container: From<Target::Sibling<StorageRef>>,
 {
-    // TODO: Actual error type
-    type Error = ();
+    type Error = Error;
+
     fn try_borrow(self) -> Result<Target::Sibling<Self>, Self::Error> {
-        let container = self.view.last().unwrap();
-        let storage_obj = container.try_as_ref().unwrap();
+        let container = self.view.last().ok_or(Error::EmptyExpression)?;
+        let storage_obj = container.try_as_ref()?;
         let converter = StorageToVisiting { view: self.view };
         let visiting_obj = Target::view(storage_obj, converter);
         Ok(visiting_obj)
@@ -68,14 +69,3 @@ where
         self.strip_type().try_borrow()
     }
 }
-
-// impl<'view, Container, Target> VisitingRef<'view, Container, Target> {
-//     pub fn borrow<'ext: 'view, Error>(self) -> Target::Sibling<VisitingRef<'view, Container>>
-//     where
-//         Target: RecursiveFamily<'ext>,
-//         VisitingRef<'view, Container>: VisitorOf<'ext, Target>,
-//         <VisitingRef<'view, Container> as VisitorOf<'ext, Target>>::Error: Debug,
-//     {
-//         self.strip_type().try_borrow().unwrap()
-//     }
-// }

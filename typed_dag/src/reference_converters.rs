@@ -1,4 +1,4 @@
-use crate::{BuilderRef, RefConverter, RefType, StorageRef, VisitingRef};
+use crate::{BuilderRef, Error, RefConverter, RefType, StorageRef, VisitingRef};
 use std::marker::PhantomData;
 
 /// Convert from a BuilderRef to StorageRef
@@ -22,7 +22,11 @@ impl<'ext> RefConverter<'ext> for BuilderToStorage {
         let rel_pos = self
             .new_storage_pos
             .checked_sub(from_ref.abs_pos)
-            .unwrap_or_else(|| panic!(""));
+            .ok_or_else(|| Error::InvalidAbsoluteReference {
+                abs_pos: from_ref.abs_pos,
+                subgraph_size: self.new_storage_pos,
+            })
+            .unwrap();
 
         StorageRef {
             rel_pos,
@@ -53,7 +57,11 @@ impl<'ext: 'view, 'view, Container> RefConverter<'ext> for StorageToVisiting<'vi
             .view
             .len()
             .checked_sub(from_ref.rel_pos)
-            .unwrap_or_else(|| panic!(""));
+            .ok_or_else(|| Error::InvalidRelativeReference {
+                rel_pos: from_ref.rel_pos,
+                subgraph_size: self.view.len(),
+            })
+            .unwrap();
         VisitingRef {
             view: &self.view[..index],
             phantom: PhantomData,

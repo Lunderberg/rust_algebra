@@ -1,10 +1,5 @@
 extern crate self as algebra;
 
-mod old_expr;
-pub use old_expr::*;
-
-mod old_parser;
-
 mod error;
 pub use error::*;
 

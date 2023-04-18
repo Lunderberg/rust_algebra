@@ -29,22 +29,13 @@ where
     fn next(&mut self) -> Option<Result<Token, Error>> {
         self.iter
             .by_ref()
-            .skip_while(|c| c.is_whitespace())
-            .next()
+            .find(|c| !c.is_whitespace())
             .map(|c| match c {
                 '0'..='9' => {
                     let mut val: i64 = c.to_digit(10).unwrap() as i64;
-                    loop {
-                        match self.iter.peek() {
-                            Some('0'..='9') => {
-                                let c = self.iter.next().unwrap();
-                                let digit = c.to_digit(10).unwrap() as i64;
-                                val = val * 10 + digit;
-                            }
-                            _ => {
-                                break;
-                            }
-                        }
+                    while let Some(c) = self.iter.next_if(|c| c.is_ascii_digit()) {
+                        let digit = c.to_digit(10).unwrap() as i64;
+                        val = val * 10 + digit;
                     }
                     Ok(Token::IntLiteral(val))
                 }

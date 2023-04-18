@@ -4,7 +4,6 @@ mod old_expr;
 pub use old_expr::*;
 
 mod old_parser;
-pub use old_parser::*;
 
 mod error;
 pub use error::*;
@@ -17,3 +16,8 @@ pub use formatter::*;
 
 mod tokenizer;
 pub(crate) use tokenizer::*;
+
+mod parser;
+pub use parser::*;
+
+mod expr_equality;

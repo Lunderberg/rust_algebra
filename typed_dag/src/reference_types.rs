@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 
 use crate::{RefType, TypedNodeRef, ValueOwner, ValueVisitor};
@@ -27,10 +28,19 @@ impl<Target> Clone for BuilderRef<Target> {
     }
 }
 impl<Target> Copy for BuilderRef<Target> {}
+impl<Target> Debug for BuilderRef<Target> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BuilderRef")
+            .field("abs_pos", &self.abs_pos)
+            .field("phantom", &self.phantom)
+            .finish()
+    }
+}
 impl<'ext> RefType<'ext> for BuilderRef {
     type ValueRef = ValueOwner;
     type Node<Target: 'ext> = BuilderRef<Target>;
 }
+
 impl<'ext, Target: 'ext> TypedNodeRef<'ext> for BuilderRef<Target> {
     type Untyped = BuilderRef;
     type Target = Target;
@@ -63,6 +73,14 @@ impl<Target> Clone for StorageRef<Target> {
     }
 }
 impl<Target> Copy for StorageRef<Target> {}
+impl<Target> Debug for StorageRef<Target> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StorageRef")
+            .field("rel_pos", &self.rel_pos)
+            .field("phantom", &self.phantom)
+            .finish()
+    }
+}
 
 impl<'ext> RefType<'ext> for StorageRef {
     type ValueRef = ValueOwner;
@@ -103,6 +121,15 @@ impl<'view, Container, Target> Clone for VisitingRef<'view, Container, Target> {
     }
 }
 impl<'view, Container, Target> Copy for VisitingRef<'view, Container, Target> {}
+impl<'view, Container, Target> Debug for VisitingRef<'view, Container, Target> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VisitingRef")
+            .field("view", &"view")
+            .field("phantom", &self.phantom)
+            .finish()
+    }
+}
+
 impl<'ext: 'view, 'view, Container> RefType<'ext> for VisitingRef<'view, Container> {
     type ValueRef = ValueVisitor<'view>;
     type Node<Target: 'ext> = VisitingRef<'view, Container, Target>;

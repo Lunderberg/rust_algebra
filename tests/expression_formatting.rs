@@ -1,4 +1,4 @@
-use algebra::expr::Numeric::*;
+use algebra::expr::Expr::*;
 use typed_dag::Visitable;
 use typed_dag_derive::tree;
 

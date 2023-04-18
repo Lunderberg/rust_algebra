@@ -45,6 +45,14 @@ impl<T: Hash + Eq> OrderedHash<T> {
     }
 }
 
+impl<T: Hash + Eq + Clone> std::iter::FromIterator<T> for OrderedHash<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let mut output = Self::new();
+        iter.into_iter().for_each(|elem| output.insert(elem));
+        output
+    }
+}
+
 struct CollectDetails {
     ident_lookup: HashMap<syn::Ident, syn::ItemEnum>,
     direct_references: HashMap<syn::ItemEnum, OrderedHash<syn::ItemEnum>>,
@@ -54,7 +62,7 @@ struct CollectDetails {
 impl<'ast> Visit<'ast> for CollectDetails {
     fn visit_item_enum(&mut self, i: &'ast syn::ItemEnum) {
         assert!(self.current.is_none(), "Nested enum definition");
-        self.current = Some(OrderedHash::new());
+        self.current = Some(std::iter::once(i.clone()).collect());
         syn::visit::visit_item_enum(self, i);
         self.direct_references
             .insert(i.clone(), self.current.take().unwrap());

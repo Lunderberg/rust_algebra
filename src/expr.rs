@@ -4,7 +4,7 @@ use typed_dag::RefType;
 use typed_dag_derive::typed_dag;
 
 #[typed_dag]
-pub mod expr {
+mod expr {
     pub enum Expr {
         Int(i64),
         Float(f64),
@@ -20,6 +20,7 @@ pub mod expr {
         Or(Expr, Expr),
     }
 }
+pub use expr::*;
 
 #[derive(PartialOrd, Ord, PartialEq, Eq)]
 pub(crate) enum OperatorPrecedence {

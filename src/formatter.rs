@@ -1,9 +1,9 @@
 use std::fmt::{Debug, Display, Formatter};
 
-use algebra::{expr, BinaryOperator};
+use algebra::expr::{visitor, BinaryOperator, Expr};
 use typed_dag::Visitable;
 
-impl<'view, V: expr::visitor::Expr<'view>> Debug for expr::Expr<V> {
+impl<'view, V: visitor::Expr<'view>> Debug for Expr<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Int(arg0) => f.debug_tuple("Int").field(arg0).finish(),
@@ -22,21 +22,21 @@ impl<'view, V: expr::visitor::Expr<'view>> Debug for expr::Expr<V> {
     }
 }
 
-impl<'view, V: expr::visitor::Expr<'view>> Display for expr::Expr<V> {
+impl<'view, V: visitor::Expr<'view>> Display for Expr<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            expr::Expr::Int(val) => write!(f, "{val}"),
-            expr::Expr::Float(val) => write!(f, "{val}"),
-            expr::Expr::Bool(val) => write!(f, "{val}"),
-            expr::Expr::Add(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
-            expr::Expr::Sub(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
-            expr::Expr::Mul(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
-            expr::Expr::Div(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
-            expr::Expr::Equal(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
-            expr::Expr::And(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
-            expr::Expr::Or(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
-            expr::Expr::UnaryNeg(arg) => display_unary_op(self, f, arg.borrow()),
-            expr::Expr::UnaryNot(arg) => display_unary_op(self, f, arg.borrow()),
+            Expr::Int(val) => write!(f, "{val}"),
+            Expr::Float(val) => write!(f, "{val}"),
+            Expr::Bool(val) => write!(f, "{val}"),
+            Expr::Add(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Expr::Sub(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Expr::Mul(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Expr::Div(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Expr::Equal(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Expr::And(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Expr::Or(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Expr::UnaryNeg(arg) => display_unary_op(self, f, arg.borrow()),
+            Expr::UnaryNot(arg) => display_unary_op(self, f, arg.borrow()),
         }
     }
 }

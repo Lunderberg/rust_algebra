@@ -10,7 +10,7 @@ pub struct Parser<'arena, I: Iterator<Item = Result<Token, Error>>> {
 }
 
 impl<'arena, 'str> Parser<'arena, Tokenizer<std::str::Chars<'str>>> {
-    fn parse(
+    pub fn parse(
         arena: &'arena mut Arena<Container>,
         text: &'str str,
     ) -> Result<BuilderRef<Expr>, Error> {

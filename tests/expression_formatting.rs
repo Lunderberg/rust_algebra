@@ -92,3 +92,17 @@ fn format_add_rhs_mul() {
     let formatted = format!("{}", expr.visit_root().borrow());
     assert_eq!(formatted, "5 + 10*15");
 }
+
+#[test]
+fn format_true() {
+    let expr = tree![Bool(true)];
+    let formatted = format!("{}", expr.visit_root().borrow());
+    assert_eq!(formatted, "true");
+}
+
+#[test]
+fn format_false() {
+    let expr = tree![Bool(false)];
+    let formatted = format!("{}", expr.visit_root().borrow());
+    assert_eq!(formatted, "false");
+}

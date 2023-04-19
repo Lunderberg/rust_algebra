@@ -50,6 +50,8 @@ impl<'arena, I: Iterator<Item = Result<Token, Error>>> Parser<'arena, I> {
             .and_then(|token: Token| -> Result<BuilderRef<Expr>, Error> {
                 match token {
                     Token::IntLiteral(val) => Ok(self.arena.push(Expr::Int(val))),
+                    Token::BoolLiteral(val) => Ok(self.arena.push(Expr::Bool(val))),
+
                     Token::Minus | Token::Plus => self
                         .tokens
                         .next_if(|peek| matches!(peek, Ok(Token::IntLiteral(_))))
@@ -75,6 +77,9 @@ impl<'arena, I: Iterator<Item = Result<Token, Error>>> Parser<'arena, I> {
                         self.expect_token(Token::RightParen)?;
                         Ok(expr)
                     }
+                    Token::Id(id) => Err(Error::NotImplemented(format!(
+                        "Variables not yet implemented, but found '{id}'"
+                    ))),
                     Token::Multiply | Token::Divide | Token::RightParen => {
                         Err(Error::UnexpectedToken(token))
                     }
@@ -255,5 +260,15 @@ mod test {
             let f = arena.push(Expr::Int(42));
             arena.push(Expr::Mul(e, f))
         })
+    }
+
+    #[test]
+    fn test_literal_true() -> Result<(), Error> {
+        parse_compare("true", |arena| arena.push(Expr::Bool(true)))
+    }
+
+    #[test]
+    fn test_literal_false() -> Result<(), Error> {
+        parse_compare("false", |arena| arena.push(Expr::Bool(false)))
     }
 }

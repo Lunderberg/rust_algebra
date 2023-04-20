@@ -7,7 +7,6 @@ impl<'view, V: expr::visitor::Expr<'view>> PartialEq for expr::Expr<V> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Int(lhs), Self::Int(rhs)) => lhs == rhs,
-            (Self::Float(lhs), Self::Float(rhs)) => lhs == rhs,
             (Self::Bool(lhs), Self::Bool(rhs)) => lhs == rhs,
             (Self::Add(lhs_a, lhs_b), Self::Add(rhs_a, rhs_b)) => {
                 lhs_a.borrow() == rhs_a.borrow() && lhs_b.borrow() == rhs_b.borrow()

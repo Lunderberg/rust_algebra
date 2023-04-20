@@ -93,8 +93,15 @@ impl<Target: HasDefaultContainer> Arena<Target::Container, Target> {
     where
         Func: FnOnce(&mut Arena<Target::Container>) -> BuilderRef<Target>,
     {
+        Self::try_build(|arena| -> Result<_, std::convert::Infallible> { Ok(func(arena)) }).unwrap()
+    }
+
+    pub fn try_build<Func, Error>(func: Func) -> Result<Self, Error>
+    where
+        Func: FnOnce(&mut Arena<Target::Container>) -> Result<BuilderRef<Target>, Error>,
+    {
         let mut arena = Arena::new();
-        let root_ref = func(&mut arena);
-        arena.finalize(root_ref)
+        let root_ref = func(&mut arena)?;
+        Ok(arena.finalize(root_ref))
     }
 }

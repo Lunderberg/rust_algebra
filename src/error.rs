@@ -10,8 +10,12 @@ pub enum Error {
     UnexpectedCharacter(char),
     #[error("Unexpected end of expr")]
     UnexpectedEndOfExpr,
-    #[error("Unexpected token: {0:?}")]
-    UnexpectedToken(Token),
+    #[error("Expected start of expression, but found token {0:?}")]
+    ExpectedStartOfExpr(Token),
+    #[error("Expected token {0:?}, but found token {1:?}")]
+    UnexpectedToken(Token, Token),
+    #[error("Expected end of file, but found token: {0:?}")]
+    ExpectedEndOfFile(Token),
     #[error("Not yet implemented: {0}")]
     NotImplemented(String),
     #[error("GraphError: {0}")]

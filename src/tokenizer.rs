@@ -6,6 +6,7 @@ use crate::{Error, OperatorPrecedence};
 pub enum Token {
     IntLiteral(i64),
     BoolLiteral(bool),
+    DecimalLiteral(DecimalLiteral),
     Id(String),
     Minus,
     Plus,
@@ -13,6 +14,13 @@ pub enum Token {
     Divide,
     LeftParen,
     RightParen,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecimalLiteral {
+    int: i64,
+    num: i64,
+    denom: i64,
 }
 
 pub(crate) struct Tokenizer<I>
@@ -33,10 +41,11 @@ where
 
         if let Some(&c) = self.iter.peek() {
             let res = None
-                .or_else(|| self.next_int())
+                .or_else(|| self.next_number())
                 .or_else(|| self.next_symbol())
                 .or_else(|| self.next_id())
                 .ok_or(Error::UnexpectedCharacter(c));
+            println!("Token = {res:?}");
             Some(res)
         } else {
             None
@@ -50,6 +59,7 @@ impl Token {
         match self {
             IntLiteral(_) => None,
             BoolLiteral(_) => None,
+            DecimalLiteral { .. } => None,
             Id(_) => None,
             Minus => Some(OperatorPrecedence::AddSub),
             Plus => Some(OperatorPrecedence::AddSub),
@@ -75,14 +85,36 @@ where
         while let Some(_) = self.iter.next_if(|c| c.is_whitespace()) {}
     }
 
-    fn next_int(&mut self) -> Option<Token> {
+    fn next_number(&mut self) -> Option<Token> {
+        let whole = self.next_int();
+        let fraction = self
+            .iter
+            .next_if_eq(&'.')
+            .map(|_| self.next_int())
+            .flatten();
+
+        match (whole, fraction) {
+            (Some((int, _)), None) => Some(Token::IntLiteral(int)),
+            (whole, Some((num, digits))) => {
+                let int = whole.map(|(int, _)| int).unwrap_or(0);
+                let denom = 10_i64.pow(digits as u32);
+                Some(Token::DecimalLiteral(DecimalLiteral { int, num, denom }))
+            }
+
+            _ => None,
+        }
+    }
+
+    fn next_int(&mut self) -> Option<(i64, usize)> {
         self.iter.next_if(char::is_ascii_digit).map(|c| {
             let mut val = c.to_digit(10).unwrap() as i64;
+            let mut digits = 1;
             while let Some(c) = self.iter.next_if(char::is_ascii_digit) {
                 let digit = c.to_digit(10).unwrap() as i64;
                 val = 10 * val + digit;
+                digits += 1;
             }
-            Token::IntLiteral(val)
+            (val, digits)
         })
     }
 
@@ -117,5 +149,20 @@ where
                 _ => Token::Id(id),
             }
         })
+    }
+}
+
+impl DecimalLiteral {
+    pub fn negative(&self) -> Self {
+        Self {
+            int: -self.int,
+            num: -self.num,
+            denom: self.denom,
+        }
+    }
+    pub fn as_fraction(&self) -> (i64, i64) {
+        let num = self.int * self.denom + self.num;
+        let gcd = num::integer::gcd(num, self.denom);
+        (num / gcd, self.denom / gcd)
     }
 }

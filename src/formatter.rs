@@ -7,7 +7,6 @@ impl<'view, V: visitor::Expr<'view>> Debug for Expr<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Int(arg0) => f.debug_tuple("Int").field(arg0).finish(),
-            Self::Float(arg0) => f.debug_tuple("Float").field(arg0).finish(),
             Self::Bool(arg0) => f.debug_tuple("Bool").field(arg0).finish(),
             Self::Add(_, _) => f.debug_tuple("Add").finish(),
             Self::Sub(_, _) => f.debug_tuple("Sub").finish(),
@@ -26,7 +25,6 @@ impl<'view, V: visitor::Expr<'view>> Display for Expr<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Expr::Int(val) => write!(f, "{val}"),
-            Expr::Float(val) => write!(f, "{val}"),
             Expr::Bool(val) => write!(f, "{val}"),
             Expr::Add(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
             Expr::Sub(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),

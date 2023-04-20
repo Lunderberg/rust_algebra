@@ -7,7 +7,6 @@ use typed_dag_derive::typed_dag;
 mod expr {
     pub enum Expr {
         Int(i64),
-        Float(f64),
         Bool(bool),
         UnaryNeg(Expr),
         UnaryNot(Expr),
@@ -41,7 +40,6 @@ impl<R: RefType<'static>> BinaryOperator for expr::Expr<R> {
     fn precedence(&self) -> Option<OperatorPrecedence> {
         match self {
             expr::Expr::Int(_) => None,
-            expr::Expr::Float(_) => None,
             expr::Expr::Bool(_) => None,
             expr::Expr::UnaryNeg(_) => Some(OperatorPrecedence::UnaryNeg),
             expr::Expr::Add(_, _) => Some(OperatorPrecedence::AddSub),
@@ -58,7 +56,6 @@ impl<R: RefType<'static>> BinaryOperator for expr::Expr<R> {
     fn display_str(&self) -> Option<&str> {
         match self {
             expr::Expr::Int(_) => None,
-            expr::Expr::Float(_) => None,
             expr::Expr::Bool(_) => None,
             expr::Expr::UnaryNeg(_) => Some("-"),
             expr::Expr::Add(_, _) => Some(" + "),

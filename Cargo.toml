@@ -10,6 +10,7 @@ edition = "2021"
 thiserror = "1.0.32"
 typed_dag_derive = { path = "typed_dag_derive" }
 typed_dag = { path = "typed_dag" }
+num = "^0.4.0"
 
 [lib]
 name = "algebra"

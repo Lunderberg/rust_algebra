@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use typed_dag::RefType;
 use typed_dag_derive::typed_dag;
 

@@ -4,17 +4,36 @@ use typed_dag_derive::typed_dag;
 #[typed_dag]
 mod expr {
     pub enum Expr {
-        Int(i64),
-        Bool(bool),
-        UnaryNeg(Expr),
-        UnaryNot(Expr),
-        Add(Expr, Expr),
-        Sub(Expr, Expr),
-        Mul(Expr, Expr),
-        Div(Expr, Expr),
-        Equal(Expr, Expr),
-        And(Expr, Expr),
-        Or(Expr, Expr),
+        Int(Int),
+        Bool(Bool),
+        Rational(Rational),
+    }
+
+    pub enum Int {
+        Literal(i64),
+        Add(Int, Int),
+        Sub(Int, Int),
+        Mul(Int, Int),
+        //Floor(RationalExpr),
+        //FloorDiv(IntExpr, IntExpr),
+        Negative(Int),
+    }
+    pub enum Bool {
+        Literal(bool),
+        IntEqual(Int, Int),
+        RationalEqual(Rational, Rational),
+
+        Not(Bool),
+        And(Bool, Bool),
+        Or(Bool, Bool),
+    }
+    pub enum Rational {
+        Ratio(Int, Int),
+        Negative(Rational),
+        Add(Rational, Rational),
+        Sub(Rational, Rational),
+        Mul(Rational, Rational),
+        Div(Rational, Rational),
     }
 }
 pub use expr::*;
@@ -34,36 +53,72 @@ pub(crate) trait BinaryOperator {
     fn display_str(&self) -> Option<&str>;
 }
 
-impl<R: RefType<'static>> BinaryOperator for expr::Expr<R> {
+impl<R: RefType<'static>> BinaryOperator for Int<R> {
     fn precedence(&self) -> Option<OperatorPrecedence> {
         match self {
-            expr::Expr::Int(_) => None,
-            expr::Expr::Bool(_) => None,
-            expr::Expr::UnaryNeg(_) => Some(OperatorPrecedence::UnaryNeg),
-            expr::Expr::Add(_, _) => Some(OperatorPrecedence::AddSub),
-            expr::Expr::Sub(_, _) => Some(OperatorPrecedence::AddSub),
-            expr::Expr::Mul(_, _) => Some(OperatorPrecedence::MulDiv),
-            expr::Expr::Div(_, _) => Some(OperatorPrecedence::MulDiv),
-            expr::Expr::Equal(_, _) => Some(OperatorPrecedence::Comparison),
-            expr::Expr::And(_, _) => Some(OperatorPrecedence::Boolean),
-            expr::Expr::Or(_, _) => Some(OperatorPrecedence::Boolean),
-            expr::Expr::UnaryNot(_) => Some(OperatorPrecedence::Boolean),
+            Int::Literal(_) => None,
+            Int::Add(_, _) => Some(OperatorPrecedence::AddSub),
+            Int::Sub(_, _) => Some(OperatorPrecedence::AddSub),
+            Int::Mul(_, _) => Some(OperatorPrecedence::MulDiv),
+            Int::Negative(_) => Some(OperatorPrecedence::UnaryNeg),
         }
     }
 
     fn display_str(&self) -> Option<&str> {
         match self {
-            expr::Expr::Int(_) => None,
-            expr::Expr::Bool(_) => None,
-            expr::Expr::UnaryNeg(_) => Some("-"),
-            expr::Expr::Add(_, _) => Some(" + "),
-            expr::Expr::Sub(_, _) => Some(" - "),
-            expr::Expr::Mul(_, _) => Some("*"),
-            expr::Expr::Div(_, _) => Some("/"),
-            expr::Expr::Equal(_, _) => Some(" == "),
-            expr::Expr::And(_, _) => Some(" && "),
-            expr::Expr::Or(_, _) => Some(" || "),
-            expr::Expr::UnaryNot(_) => Some("!"),
+            Int::Literal(_) => None,
+            Int::Negative(_) => Some("-"),
+            Int::Add(_, _) => Some(" + "),
+            Int::Sub(_, _) => Some(" - "),
+            Int::Mul(_, _) => Some("*"),
+        }
+    }
+}
+
+impl<R: RefType<'static>> BinaryOperator for Bool<R> {
+    fn precedence(&self) -> Option<OperatorPrecedence> {
+        match self {
+            Bool::Literal(_) => None,
+            Bool::And(_, _) => Some(OperatorPrecedence::Boolean),
+            Bool::Or(_, _) => Some(OperatorPrecedence::Boolean),
+            Bool::Not(_) => Some(OperatorPrecedence::Boolean),
+            Bool::IntEqual(_, _) => Some(OperatorPrecedence::Comparison),
+            Bool::RationalEqual(_, _) => Some(OperatorPrecedence::Comparison),
+        }
+    }
+
+    fn display_str(&self) -> Option<&str> {
+        match self {
+            Bool::Literal(_) => None,
+            Bool::And(_, _) => Some(" && "),
+            Bool::Or(_, _) => Some(" || "),
+            Bool::Not(_) => Some("!"),
+            Bool::IntEqual(_, _) => Some("=="),
+            Bool::RationalEqual(_, _) => Some("=="),
+        }
+    }
+}
+
+impl<R: RefType<'static>> BinaryOperator for Rational<R> {
+    fn precedence(&self) -> Option<OperatorPrecedence> {
+        match self {
+            Rational::Negative(_) => Some(OperatorPrecedence::UnaryNeg),
+            Rational::Add(_, _) => Some(OperatorPrecedence::AddSub),
+            Rational::Sub(_, _) => Some(OperatorPrecedence::AddSub),
+            Rational::Mul(_, _) => Some(OperatorPrecedence::MulDiv),
+            Rational::Div(_, _) => Some(OperatorPrecedence::MulDiv),
+            Rational::Ratio(_, _) => Some(OperatorPrecedence::MulDiv),
+        }
+    }
+
+    fn display_str(&self) -> Option<&str> {
+        match self {
+            Rational::Ratio(_, _) => Some("/"),
+            Rational::Negative(_) => Some("-"),
+            Rational::Add(_, _) => Some(" + "),
+            Rational::Sub(_, _) => Some(" - "),
+            Rational::Mul(_, _) => Some("*"),
+            Rational::Div(_, _) => Some("/"),
         }
     }
 }

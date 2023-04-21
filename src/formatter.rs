@@ -1,22 +1,14 @@
 use std::fmt::{Debug, Display, Formatter};
 
-use algebra::expr::{visitor, BinaryOperator, Expr};
+use algebra::expr::{visitor, BinaryOperator, Bool, Expr, Int, Rational};
 use typed_dag::Visitable;
 
 impl<'view, V: visitor::Expr<'view>> Debug for Expr<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Int(arg0) => f.debug_tuple("Int").field(arg0).finish(),
-            Self::Bool(arg0) => f.debug_tuple("Bool").field(arg0).finish(),
-            Self::Add(_, _) => f.debug_tuple("Add").finish(),
-            Self::Sub(_, _) => f.debug_tuple("Sub").finish(),
-            Self::Mul(_, _) => f.debug_tuple("Mul").finish(),
-            Self::Div(_, _) => f.debug_tuple("Div").finish(),
-            Self::Equal(_, _) => f.debug_tuple("Equal").finish(),
-            Self::And(_, _) => f.debug_tuple("And").finish(),
-            Self::Or(_, _) => f.debug_tuple("Or").finish(),
-            Self::UnaryNeg(_) => f.debug_tuple("UnaryNeg").finish(),
-            Self::UnaryNot(_) => f.debug_tuple("UnaryNot").finish(),
+            Self::Int(arg0) => f.debug_tuple("Int").field(&arg0.borrow()).finish(),
+            Self::Bool(arg0) => f.debug_tuple("Bool").field(&arg0.borrow()).finish(),
+            Self::Rational(arg0) => f.debug_tuple("Rational").field(&arg0.borrow()).finish(),
         }
     }
 }
@@ -24,17 +16,133 @@ impl<'view, V: visitor::Expr<'view>> Debug for Expr<V> {
 impl<'view, V: visitor::Expr<'view>> Display for Expr<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expr::Int(val) => write!(f, "{val}"),
-            Expr::Bool(val) => write!(f, "{val}"),
-            Expr::Add(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
-            Expr::Sub(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
-            Expr::Mul(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
-            Expr::Div(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
-            Expr::Equal(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
-            Expr::And(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
-            Expr::Or(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
-            Expr::UnaryNeg(arg) => display_unary_op(self, f, arg.borrow()),
-            Expr::UnaryNot(arg) => display_unary_op(self, f, arg.borrow()),
+            Expr::Int(val) => write!(f, "{}", val.borrow()),
+            Expr::Bool(val) => write!(f, "{}", val.borrow()),
+            Expr::Rational(val) => write!(f, "{}", val.borrow()),
+        }
+    }
+}
+
+impl<'view, V: visitor::Int<'view>> Debug for Int<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Literal(arg0) => f.debug_tuple("Literal").field(arg0).finish(),
+            Self::Add(arg0, arg1) => f
+                .debug_tuple("Add")
+                .field(&arg0.borrow())
+                .field(&arg1.borrow())
+                .finish(),
+            Self::Sub(arg0, arg1) => f
+                .debug_tuple("Sub")
+                .field(&arg0.borrow())
+                .field(&arg1.borrow())
+                .finish(),
+            Self::Mul(arg0, arg1) => f
+                .debug_tuple("Mul")
+                .field(&arg0.borrow())
+                .field(&arg1.borrow())
+                .finish(),
+            Self::Negative(arg0) => f.debug_tuple("Negative").field(&arg0.borrow()).finish(),
+        }
+    }
+}
+
+impl<'view, V: visitor::Int<'view>> Display for Int<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Int::Literal(val) => write!(f, "{val}"),
+            Int::Add(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Int::Sub(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Int::Mul(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Int::Negative(arg) => display_unary_op(self, f, arg.borrow()),
+        }
+    }
+}
+
+impl<'view, V: visitor::Bool<'view>> Debug for Bool<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Literal(arg0) => f.debug_tuple("Literal").field(arg0).finish(),
+            Self::IntEqual(arg0, arg1) => f
+                .debug_tuple("IntEqual")
+                .field(&arg0.borrow())
+                .field(&arg1.borrow())
+                .finish(),
+            Self::RationalEqual(arg0, arg1) => f
+                .debug_tuple("RationalEqual")
+                .field(&arg0.borrow())
+                .field(&arg1.borrow())
+                .finish(),
+            Self::Not(arg0) => f.debug_tuple("Not").field(&arg0.borrow()).finish(),
+            Self::And(arg0, arg1) => f
+                .debug_tuple("And")
+                .field(&arg0.borrow())
+                .field(&arg1.borrow())
+                .finish(),
+            Self::Or(arg0, arg1) => f
+                .debug_tuple("Or")
+                .field(&arg0.borrow())
+                .field(&arg1.borrow())
+                .finish(),
+        }
+    }
+}
+
+impl<'view, V: visitor::Bool<'view>> Display for Bool<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Bool::Literal(val) => write!(f, "{val}"),
+            Bool::And(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Bool::Or(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Bool::Not(arg) => display_unary_op(self, f, arg.borrow()),
+            Bool::IntEqual(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Bool::RationalEqual(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+        }
+    }
+}
+
+impl<'view, V: visitor::Rational<'view>> Debug for Rational<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ratio(arg0, arg1) => f
+                .debug_tuple("Ratio")
+                .field(&arg0.borrow())
+                .field(&arg1.borrow())
+                .finish(),
+            Self::Negative(arg0) => f.debug_tuple("Negative").field(&arg0.borrow()).finish(),
+            Self::Add(arg0, arg1) => f
+                .debug_tuple("Add")
+                .field(&arg0.borrow())
+                .field(&arg1.borrow())
+                .finish(),
+            Self::Sub(arg0, arg1) => f
+                .debug_tuple("Sub")
+                .field(&arg0.borrow())
+                .field(&arg1.borrow())
+                .finish(),
+            Self::Mul(arg0, arg1) => f
+                .debug_tuple("Mul")
+                .field(&arg0.borrow())
+                .field(&arg1.borrow())
+                .finish(),
+            Self::Div(arg0, arg1) => f
+                .debug_tuple("Div")
+                .field(&arg0.borrow())
+                .field(&arg1.borrow())
+                .finish(),
+        }
+    }
+}
+
+impl<'view, V: visitor::Rational<'view>> Display for Rational<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Rational::Ratio(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Rational::Add(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Rational::Sub(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Rational::Mul(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Rational::Div(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Rational::Negative(arg) => display_unary_op(self, f, arg.borrow()),
         }
     }
 }

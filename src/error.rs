@@ -16,6 +16,8 @@ pub enum Error {
     UnexpectedToken(Token, Token),
     #[error("Expected end of file, but found token: {0:?}")]
     ExpectedEndOfFile(Token),
+    #[error("Invalid operation: {0:?}")]
+    InvalidOperation(String),
     #[error("Not yet implemented: {0}")]
     NotImplemented(String),
     #[error("GraphError: {0}")]

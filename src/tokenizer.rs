@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
 
 use crate::{Error, OperatorPrecedence};
@@ -21,6 +22,23 @@ pub struct DecimalLiteral {
     int: i64,
     num: i64,
     denom: i64,
+}
+
+impl Display for Token {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Token::IntLiteral(val) => write!(f, "{val}"),
+            Token::BoolLiteral(val) => write!(f, "{val}"),
+            Token::DecimalLiteral(_) => todo!(),
+            Token::Id(name) => write!(f, "{name}"),
+            Token::Minus => write!(f, "-"),
+            Token::Plus => write!(f, "+"),
+            Token::Multiply => write!(f, "*"),
+            Token::Divide => write!(f, "/"),
+            Token::LeftParen => write!(f, "("),
+            Token::RightParen => write!(f, ")"),
+        }
+    }
 }
 
 pub(crate) struct Tokenizer<I>

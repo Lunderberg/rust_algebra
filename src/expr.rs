@@ -15,7 +15,8 @@ mod expr {
         Sub(Int, Int),
         Mul(Int, Int),
         //Floor(RationalExpr),
-        //FloorDiv(IntExpr, IntExpr),
+        FloorDiv(Int, Int),
+        FloorMod(Int, Int),
         Negative(Int),
     }
     pub enum Bool {
@@ -61,6 +62,8 @@ impl<R: RefType<'static>> BinaryOperator for Int<R> {
             Int::Add(_, _) => Some(OperatorPrecedence::AddSub),
             Int::Sub(_, _) => Some(OperatorPrecedence::AddSub),
             Int::Mul(_, _) => Some(OperatorPrecedence::MulDiv),
+            Int::FloorMod(_, _) => Some(OperatorPrecedence::MulDiv),
+            Int::FloorDiv(_, _) => Some(OperatorPrecedence::MulDiv),
             Int::Negative(_) => Some(OperatorPrecedence::UnaryNeg),
         }
     }
@@ -72,6 +75,8 @@ impl<R: RefType<'static>> BinaryOperator for Int<R> {
             Int::Add(_, _) => Some(" + "),
             Int::Sub(_, _) => Some(" - "),
             Int::Mul(_, _) => Some("*"),
+            Int::FloorDiv(_, _) => Some("//"),
+            Int::FloorMod(_, _) => Some("%"),
         }
     }
 }

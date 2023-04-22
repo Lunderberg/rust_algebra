@@ -144,3 +144,37 @@ fn format_boolean_or() {
     let formatted = format!("{}", expr.visit_root().borrow());
     assert_eq!(formatted, "true || false");
 }
+
+#[test]
+fn format_floordiv_of_literals() {
+    let expr = tree![Int::FloorDiv(Int::Literal(5), Int::Literal(10))];
+    let formatted = format!("{}", expr.visit_root().borrow());
+    assert_eq!(formatted, "5//10");
+}
+
+#[test]
+fn format_floordiv_of_sum() {
+    let expr = tree![Int::FloorDiv(
+        Int::Add(Int::Literal(1), Int::Literal(2)),
+        Int::Add(Int::Literal(3), Int::Literal(4))
+    )];
+    let formatted = format!("{}", expr.visit_root().borrow());
+    assert_eq!(formatted, "(1 + 2)//(3 + 4)");
+}
+
+#[test]
+fn format_floormod_of_literals() {
+    let expr = tree![Int::FloorMod(Int::Literal(5), Int::Literal(10))];
+    let formatted = format!("{}", expr.visit_root().borrow());
+    assert_eq!(formatted, "5%10");
+}
+
+#[test]
+fn format_floormod_of_sum() {
+    let expr = tree![Int::FloorMod(
+        Int::Add(Int::Literal(1), Int::Literal(2)),
+        Int::Add(Int::Literal(3), Int::Literal(4))
+    )];
+    let formatted = format!("{}", expr.visit_root().borrow());
+    assert_eq!(formatted, "(1 + 2)%(3 + 4)");
+}

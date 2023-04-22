@@ -26,6 +26,12 @@ impl<'view, V: expr::visitor::Expr<'view>> PartialEq for expr::Int<V> {
             (Self::Mul(l0, l1), Self::Mul(r0, r1)) => {
                 l0.borrow() == r0.borrow() && l1.borrow() == r1.borrow()
             }
+            (Self::FloorDiv(l0, l1), Self::FloorDiv(r0, r1)) => {
+                l0.borrow() == r0.borrow() && l1.borrow() == r1.borrow()
+            }
+            (Self::FloorMod(l0, l1), Self::FloorMod(r0, r1)) => {
+                l0.borrow() == r0.borrow() && l1.borrow() == r1.borrow()
+            }
             (Self::Negative(l0), Self::Negative(r0)) => l0.borrow() == r0.borrow(),
             _ => false,
         }

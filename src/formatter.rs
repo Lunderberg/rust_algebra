@@ -42,6 +42,16 @@ impl<'view, V: visitor::Int<'view>> Debug for Int<V> {
                 .field(&arg0.borrow())
                 .field(&arg1.borrow())
                 .finish(),
+            Self::FloorDiv(arg0, arg1) => f
+                .debug_tuple("FloorDiv")
+                .field(&arg0.borrow())
+                .field(&arg1.borrow())
+                .finish(),
+            Self::FloorMod(arg0, arg1) => f
+                .debug_tuple("FloorMod")
+                .field(&arg0.borrow())
+                .field(&arg1.borrow())
+                .finish(),
             Self::Negative(arg0) => f.debug_tuple("Negative").field(&arg0.borrow()).finish(),
         }
     }
@@ -54,6 +64,8 @@ impl<'view, V: visitor::Int<'view>> Display for Int<V> {
             Int::Add(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
             Int::Sub(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
             Int::Mul(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Int::FloorDiv(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
+            Int::FloorMod(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
             Int::Negative(arg) => display_unary_op(self, f, arg.borrow()),
         }
     }

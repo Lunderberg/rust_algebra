@@ -183,3 +183,19 @@ fn test_standalone_dot_is_error() -> Result<(), Error> {
     assert!(Arena::try_build(|arena| parse_expr(".".chars(), arena)).is_err());
     Ok(())
 }
+
+#[test]
+fn test_boolean_and() -> Result<(), Error> {
+    parse_compare(
+        "true && false",
+        tree! {Expr::Bool(Bool::And(Bool::Literal(true), Bool::Literal(false)))},
+    )
+}
+
+#[test]
+fn test_boolean_or() -> Result<(), Error> {
+    parse_compare(
+        "false || true",
+        tree! {Expr::Bool(Bool::Or(Bool::Literal(false), Bool::Literal(true)))},
+    )
+}

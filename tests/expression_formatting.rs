@@ -130,3 +130,17 @@ fn format_false() {
     let formatted = format!("{}", expr.visit_root().borrow());
     assert_eq!(formatted, "false");
 }
+
+#[test]
+fn format_boolean_and() {
+    let expr = tree![Bool::And(Bool::Literal(false), Bool::Literal(true))];
+    let formatted = format!("{}", expr.visit_root().borrow());
+    assert_eq!(formatted, "false && true");
+}
+
+#[test]
+fn format_boolean_or() {
+    let expr = tree![Bool::Or(Bool::Literal(true), Bool::Literal(false))];
+    let formatted = format!("{}", expr.visit_root().borrow());
+    assert_eq!(formatted, "true || false");
+}

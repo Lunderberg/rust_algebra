@@ -2,6 +2,7 @@ use crate::{expr::*, DecimalLiteral, Error, OperatorPrecedence, Token, Tokenizer
 use typed_dag::{Arena, BuilderRef, HasDefaultContainer, RecursiveObj, StorageRef, Visitable};
 
 use std::convert::From;
+use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
 
 type Container = <crate::expr::Expr as HasDefaultContainer>::Container;
@@ -44,6 +45,37 @@ impl From<BuilderRef<Bool>> for ParseExpr {
 impl From<BuilderRef<Rational>> for ParseExpr {
     fn from(value: BuilderRef<Rational>) -> Self {
         ParseExpr::Rational(value)
+    }
+}
+impl ParseExpr {
+    fn type_str(&self) -> impl Display {
+        match self {
+            ParseExpr::Int(_) => "Int",
+            ParseExpr::Bool(_) => "Bool",
+            ParseExpr::Rational(_) => "Rational",
+        }
+    }
+    fn display<'a>(&'a self, arena: &'a Arena<Container>) -> impl Display + 'a {
+        struct Wrapper<'a> {
+            arena: &'a Arena<Container>,
+            expr: &'a ParseExpr,
+        }
+        impl<'a> Display for Wrapper<'a> {
+            fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+                match self.expr {
+                    ParseExpr::Int(expr) => {
+                        write!(f, "{}", self.arena.visit_by_ref(*expr).borrow())
+                    }
+                    ParseExpr::Bool(expr) => {
+                        write!(f, "{}", self.arena.visit_by_ref(*expr).borrow())
+                    }
+                    ParseExpr::Rational(expr) => {
+                        write!(f, "{}", self.arena.visit_by_ref(*expr).borrow())
+                    }
+                }
+            }
+        }
+        Wrapper { arena, expr: self }
     }
 }
 
@@ -146,9 +178,11 @@ impl<'arena, I: Iterator<Item = Result<Token, Error>>> Parser<'arena, I> {
                     Token::Id(id) => Err(Error::NotImplemented(format!(
                         "Variables not yet implemented, but found '{id}'"
                     ))),
-                    Token::Multiply | Token::Divide | Token::RightParen => {
-                        Err(Error::ExpectedStartOfExpr(token))
-                    }
+                    Token::Multiply
+                    | Token::Divide
+                    | Token::RightParen
+                    | Token::And
+                    | Token::Or => Err(Error::ExpectedStartOfExpr(token)),
                 }
             })?;
 
@@ -207,26 +241,20 @@ impl<'arena, I: Iterator<Item = Result<Token, Error>>> Parser<'arena, I> {
                     (ParseExpr::Rational(lhs), Token::Divide, ParseExpr::Rational(rhs)) => {
                         Ok(self.push(Rational::Div(lhs, rhs)))
                     }
-                    (
-                        ParseExpr::Bool(b),
-                        Token::Minus | Token::Plus | Token::Multiply | Token::Divide,
-                        _,
-                    ) => Err(Error::InvalidOperation(format!(
-                        "Cannot use operator {} with boolean LHS {}",
+                    (ParseExpr::Bool(lhs), Token::And, ParseExpr::Bool(rhs)) => {
+                        Ok(self.push(Bool::And(lhs, rhs)))
+                    }
+                    (ParseExpr::Bool(lhs), Token::Or, ParseExpr::Bool(rhs)) => {
+                        Ok(self.push(Bool::Or(lhs, rhs)))
+                    }
+                    (lhs, op, rhs) => Err(Error::InvalidOperation(format!(
+                        "Cannot use operator {} with LHS '{}' (type = {}) and RHS '{}' (type={})",
                         op,
-                        self.arena.visit_by_ref(b).borrow()
+                        lhs.display(&self.arena),
+                        lhs.type_str(),
+                        rhs.display(&self.arena),
+                        rhs.type_str(),
                     ))),
-                    (
-                        _,
-                        Token::Minus | Token::Plus | Token::Multiply | Token::Divide,
-                        ParseExpr::Bool(b),
-                    ) => Err(Error::InvalidOperation(format!(
-                        "Cannot use operator {} with boolean LHS {}",
-                        op,
-                        self.arena.visit_by_ref(b).borrow()
-                    ))),
-
-                    _ => panic!(),
                 }?;
             } else {
                 break;

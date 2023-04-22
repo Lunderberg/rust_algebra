@@ -13,6 +13,8 @@ pub enum Token {
     Plus,
     Multiply,
     Divide,
+    Or,
+    And,
     LeftParen,
     RightParen,
 }
@@ -35,6 +37,8 @@ impl Display for Token {
             Token::Plus => write!(f, "+"),
             Token::Multiply => write!(f, "*"),
             Token::Divide => write!(f, "/"),
+            Token::Or => write!(f, "||"),
+            Token::And => write!(f, "&&"),
             Token::LeftParen => write!(f, "("),
             Token::RightParen => write!(f, ")"),
         }
@@ -57,17 +61,10 @@ where
     fn next(&mut self) -> Option<Result<Token, Error>> {
         self.skip_whitespace();
 
-        if let Some(&c) = self.iter.peek() {
-            let res = None
-                .or_else(|| self.next_number())
-                .or_else(|| self.next_symbol())
-                .or_else(|| self.next_id())
-                .ok_or(Error::UnexpectedCharacter(c));
-            println!("Token = {res:?}");
-            Some(res)
-        } else {
-            None
-        }
+        None.or_else(|| self.next_number())
+            .or_else(|| self.next_symbol())
+            .or_else(|| self.next_id())
+            .or_else(|| self.iter.next().map(|c| Err(Error::UnexpectedCharacter(c))))
     }
 }
 
@@ -83,6 +80,8 @@ impl Token {
             Plus => Some(OperatorPrecedence::AddSub),
             Multiply => Some(OperatorPrecedence::MulDiv),
             Divide => Some(OperatorPrecedence::MulDiv),
+            And => Some(OperatorPrecedence::Boolean),
+            Or => Some(OperatorPrecedence::Boolean),
             LeftParen => None,
             RightParen => None,
         }
@@ -103,7 +102,7 @@ where
         while let Some(_) = self.iter.next_if(|c| c.is_whitespace()) {}
     }
 
-    fn next_number(&mut self) -> Option<Token> {
+    fn next_number(&mut self) -> Option<Result<Token, Error>> {
         let whole = self.next_int();
         let fraction = self
             .iter
@@ -112,11 +111,12 @@ where
             .flatten();
 
         match (whole, fraction) {
-            (Some((int, _)), None) => Some(Token::IntLiteral(int)),
+            (Some((int, _)), None) => Some(Ok(Token::IntLiteral(int))),
             (whole, Some((num, digits))) => {
                 let int = whole.map(|(int, _)| int).unwrap_or(0);
                 let denom = 10_i64.pow(digits as u32);
-                Some(Token::DecimalLiteral(DecimalLiteral { int, num, denom }))
+                let decimal = DecimalLiteral { int, num, denom };
+                Some(Ok(Token::DecimalLiteral(decimal)))
             }
 
             _ => None,
@@ -136,24 +136,31 @@ where
         })
     }
 
-    fn next_symbol(&mut self) -> Option<Token> {
-        let token = match self.iter.peek() {
-            Some('-') => Some(Token::Minus),
-            Some('+') => Some(Token::Plus),
-            Some('*') => Some(Token::Multiply),
-            Some('/') => Some(Token::Divide),
-            Some('(') => Some(Token::LeftParen),
-            Some(')') => Some(Token::RightParen),
-            _ => None,
-        };
-        if token.is_some() {
-            self.iter.next();
-        }
-
-        token
+    fn next_symbol(&mut self) -> Option<Result<Token, Error>> {
+        self.iter
+            .next_if(|c| matches!(c, '-' | '+' | '*' | '/' | '(' | ')' | '|' | '&'))
+            .map(|c| match c {
+                '-' => Ok(Token::Minus),
+                '+' => Ok(Token::Plus),
+                '*' => Ok(Token::Multiply),
+                '/' => Ok(Token::Divide),
+                '(' => Ok(Token::LeftParen),
+                ')' => Ok(Token::RightParen),
+                '|' => match self.iter.next() {
+                    Some('|') => Ok(Token::Or),
+                    Some(c) => Err(Error::UnexpectedCharacter(c)),
+                    None => Err(Error::UnexpectedEndOfExpr),
+                },
+                '&' => match self.iter.next() {
+                    Some('&') => Ok(Token::And),
+                    Some(c) => Err(Error::UnexpectedCharacter(c)),
+                    None => Err(Error::UnexpectedEndOfExpr),
+                },
+                _ => panic!(),
+            })
     }
 
-    fn next_id(&mut self) -> Option<Token> {
+    fn next_id(&mut self) -> Option<Result<Token, Error>> {
         let valid_first_char = |c: &char| c.is_ascii_alphabetic() || *c == '_';
         let valid_remaining = |c: &char| c.is_ascii_alphanumeric() || *c == '_';
 
@@ -161,11 +168,12 @@ where
             let id: String = std::iter::once(first)
                 .chain(std::iter::from_fn(|| self.iter.next_if(valid_remaining)))
                 .collect();
-            match id.as_str() {
+            let token = match id.as_str() {
                 "true" => Token::BoolLiteral(true),
                 "false" => Token::BoolLiteral(false),
                 _ => Token::Id(id),
-            }
+            };
+            Ok(token)
         })
     }
 }

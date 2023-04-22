@@ -202,15 +202,15 @@ impl<'arena, I: Iterator<Item = Result<Token, Error>>> Parser<'arena, I> {
                 let op_precedence = op.operator_precedence().unwrap();
                 let rhs = self.expect_expr_precedence(op_precedence)?;
 
+                // Operations involving an integer and a rational
+                // promote the integer to a rational.
                 let (lhs, rhs) = match (expr, rhs) {
                     (ParseExpr::Int(lhs), ParseExpr::Rational(rhs)) => {
-                        let one = self.arena.push(Int::Literal(1));
-                        let lhs = self.arena.push(Rational::Ratio(lhs, one));
+                        let lhs = self.arena.push(Rational::Int(lhs));
                         (lhs.into(), rhs.into())
                     }
                     (ParseExpr::Rational(lhs), ParseExpr::Int(rhs)) => {
-                        let one = self.arena.push(Int::Literal(1));
-                        let rhs = self.arena.push(Rational::Ratio(rhs, one));
+                        let rhs = self.arena.push(Rational::Int(rhs));
                         (lhs.into(), rhs.into())
                     }
                     (lhs, rhs) => (lhs, rhs),

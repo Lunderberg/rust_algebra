@@ -114,7 +114,7 @@ fn test_parse_mixed_multiply_divide() -> Result<(), Error> {
         tree! {Expr::Rational(Rational::Mul(
         Rational::Ratio(Int::Mul(Int::Literal(2), Int::Literal(5)),
             Int::Literal(10)),
-           Rational::Ratio(Int::Literal(42), Int::Literal(1))))},
+           Rational::Int(Int::Literal(42))))},
     )
 }
 

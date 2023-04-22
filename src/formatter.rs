@@ -104,6 +104,7 @@ impl<'view, V: visitor::Bool<'view>> Display for Bool<V> {
 impl<'view, V: visitor::Rational<'view>> Debug for Rational<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Int(arg0) => f.debug_tuple("Int").field(&arg0.borrow()).finish(),
             Self::Ratio(arg0, arg1) => f
                 .debug_tuple("Ratio")
                 .field(&arg0.borrow())
@@ -137,6 +138,7 @@ impl<'view, V: visitor::Rational<'view>> Debug for Rational<V> {
 impl<'view, V: visitor::Rational<'view>> Display for Rational<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Rational::Int(arg) => write!(f, "{}", arg.borrow()),
             Rational::Ratio(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
             Rational::Add(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),
             Rational::Sub(lhs, rhs) => display_binary_op(self, f, lhs.borrow(), rhs.borrow()),

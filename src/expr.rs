@@ -28,6 +28,7 @@ mod expr {
         Or(Bool, Bool),
     }
     pub enum Rational {
+        Int(Int),
         Ratio(Int, Int),
         Negative(Rational),
         Add(Rational, Rational),
@@ -102,6 +103,7 @@ impl<R: RefType<'static>> BinaryOperator for Bool<R> {
 impl<R: RefType<'static>> BinaryOperator for Rational<R> {
     fn precedence(&self) -> Option<OperatorPrecedence> {
         match self {
+            Rational::Int(_) => None,
             Rational::Negative(_) => Some(OperatorPrecedence::UnaryNeg),
             Rational::Add(_, _) => Some(OperatorPrecedence::AddSub),
             Rational::Sub(_, _) => Some(OperatorPrecedence::AddSub),
@@ -113,6 +115,7 @@ impl<R: RefType<'static>> BinaryOperator for Rational<R> {
 
     fn display_str(&self) -> Option<&str> {
         match self {
+            Rational::Int(_) => None,
             Rational::Ratio(_, _) => Some("/"),
             Rational::Negative(_) => Some("-"),
             Rational::Add(_, _) => Some(" + "),

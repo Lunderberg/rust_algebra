@@ -55,6 +55,7 @@ impl<'view, V: expr::visitor::Expr<'view>> PartialEq for expr::Bool<V> {
 impl<'view, V: expr::visitor::Expr<'view>> PartialEq for expr::Rational<V> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
+            (Self::Int(l0), Self::Int(r0)) => l0.borrow() == r0.borrow(),
             (Self::Ratio(l0, l1), Self::Ratio(r0, r1)) => {
                 l0.borrow() == r0.borrow() && l1.borrow() == r1.borrow()
             }

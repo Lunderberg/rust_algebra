@@ -2,7 +2,16 @@ use quote::{format_ident, quote};
 use syn::parse_macro_input;
 
 pub fn tree(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let orig: syn::ExprCall = parse_macro_input!(input as syn::ExprCall);
+    let mut arg: syn::Expr = parse_macro_input!(input as syn::Expr);
+    while let syn::Expr::Paren(paren) = arg {
+        arg = *paren.expr;
+    }
+
+    let orig = match arg {
+        syn::Expr::Call(call) => call,
+        _ => panic!("Couldn't parse argument to tree! macro"),
+    };
+
     let call = tree_arg(orig);
 
     let stream = quote! {

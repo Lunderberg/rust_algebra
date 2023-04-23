@@ -1,180 +1,100 @@
 use algebra::{Bool, Int, Rational};
-use typed_dag::Visitable;
+use std::fmt::Display;
+use typed_dag::{Arena, RecursiveFamily, Visitable, VisitingRef, VisitorOf};
 use typed_dag_derive::tree;
 
-#[test]
-fn format_int() {
-    let expr = tree![Int::Literal(5)];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "5");
+// Explicitly use a validate() function instead of adding these lines
+// to the macro_rules! definition, as otherwise the use of the tree!
+// macro in the generated code causes spurious underlining by
+// rust-analyzer, as of 2023-04-22.
+fn validate<'ext: 'view, 'view, Container, Target>(
+    arena: &'view Arena<Container, Target>,
+    expected: &str,
+) where
+    Target: RecursiveFamily<'ext>,
+    VisitingRef<'view, Container>: VisitorOf<'ext, Target>,
+    <Target as RecursiveFamily<'ext>>::Sibling<VisitingRef<'view, Container>>: Display,
+{
+    let formatted = format!("{}", arena.visit_root().borrow());
+    assert_eq!(formatted, expected);
 }
 
-#[test]
-fn format_add() {
-    let expr = tree![Int::Add(Int::Literal(5), Int::Literal(10))];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "5 + 10");
+macro_rules! test_cases {
+    ($($name:ident: $expr:expr => $expected:expr,)*) => {
+        $(
+            #[test]
+            fn $name() {
+                validate(&tree![$expr], $expected)
+            }
+        )*
+    };
 }
 
-#[test]
-fn format_sub() {
-    let expr = tree![Int::Sub(Int::Literal(5), Int::Literal(10))];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "5 - 10");
-}
-
-#[test]
-fn format_left_associative_add() {
-    let expr = tree![Int::Add(
+test_cases! {
+    int: Int::Literal(5) => "5",
+    add: Int::Add(Int::Literal(5), Int::Literal(10)) => "5 + 10",
+    sub: Int::Sub(Int::Literal(5), Int::Literal(10)) => "5 - 10",
+    left_associative_add: Int::Add(
         Int::Add(Int::Literal(5), Int::Literal(10)),
         Int::Literal(15)
-    )];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "5 + 10 + 15");
-}
-
-#[test]
-fn format_right_associative_add() {
-    let expr = tree![Int::Add(
+    ) => "5 + 10 + 15",
+    right_associative_add: Int::Add(
         Int::Literal(5),
         Int::Add(Int::Literal(10), Int::Literal(15))
-    )];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "5 + (10 + 15)");
-}
+    ) => "5 + (10 + 15)",
 
-#[test]
-fn format_mul() {
-    let expr = tree![Int::Mul(Int::Literal(5), Int::Literal(10))];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "5*10");
-}
+    mul: Int::Mul(Int::Literal(5), Int::Literal(10)) => "5*10",
+    div: Rational::Ratio(Int::Literal(5), Int::Literal(10)) => "5/10",
 
-#[test]
-fn format_div() {
-    let expr = tree![Rational::Ratio(Int::Literal(5), Int::Literal(10))];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "5/10");
-}
-
-#[test]
-fn format_left_associative_mul() {
-    let expr = tree![Int::Mul(
+    left_associative_mul: Int::Mul(
         Int::Mul(Int::Literal(5), Int::Literal(10)),
         Int::Literal(15)
-    )];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "5*10*15");
-}
+    ) => "5*10*15",
 
-#[test]
-fn format_right_associative_mul() {
-    let expr = tree![Int::Mul(
+    right_associative_mul: Int::Mul(
         Int::Literal(5),
         Int::Mul(Int::Literal(10), Int::Literal(15))
-    )];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "5*(10*15)");
-}
+    ) => "5*(10*15)",
 
-#[test]
-fn format_mul_lhs_add() {
-    let expr = tree![Int::Mul(
+    mul_lhs_add: Int::Mul(
         Int::Add(Int::Literal(5), Int::Literal(10)),
         Int::Literal(15)
-    )];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "(5 + 10)*15");
-}
+    ) => "(5 + 10)*15",
 
-#[test]
-fn format_mul_rhs_add() {
-    let expr = tree![Int::Mul(
+    mul_rhs_add: Int::Mul(
         Int::Literal(5),
         Int::Add(Int::Literal(10), Int::Literal(15))
-    )];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "5*(10 + 15)");
-}
+    ) => "5*(10 + 15)",
 
-#[test]
-fn format_add_lhs_mul() {
-    let expr = tree![Int::Add(
+    add_lhs_mul: Int::Add(
         Int::Mul(Int::Literal(5), Int::Literal(10)),
         Int::Literal(15)
-    )];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "5*10 + 15");
-}
+    ) => "5*10 + 15",
 
-#[test]
-fn format_add_rhs_mul() {
-    let expr = tree![Int::Add(
+    add_rhs_mul: Int::Add(
         Int::Literal(5),
         Int::Mul(Int::Literal(10), Int::Literal(15))
-    )];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "5 + 10*15");
-}
+    ) => "5 + 10*15",
 
-#[test]
-fn format_true() {
-    let expr = tree![Bool::Literal(true)];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "true");
-}
+    format_true: Bool::Literal(true) => "true",
 
-#[test]
-fn format_false() {
-    let expr = tree![Bool::Literal(false)];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "false");
-}
+    format_false: Bool::Literal(false) => "false",
 
-#[test]
-fn format_boolean_and() {
-    let expr = tree![Bool::And(Bool::Literal(false), Bool::Literal(true))];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "false && true");
-}
+    boolean_and: Bool::And(Bool::Literal(false), Bool::Literal(true)) => "false && true",
 
-#[test]
-fn format_boolean_or() {
-    let expr = tree![Bool::Or(Bool::Literal(true), Bool::Literal(false))];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "true || false");
-}
+    boolean_or: Bool::Or(Bool::Literal(true), Bool::Literal(false)) => "true || false",
 
-#[test]
-fn format_floordiv_of_literals() {
-    let expr = tree![Int::FloorDiv(Int::Literal(5), Int::Literal(10))];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "5//10");
-}
+    floordiv: Int::FloorDiv(Int::Literal(5), Int::Literal(10)) => "5//10",
 
-#[test]
-fn format_floordiv_of_sum() {
-    let expr = tree![Int::FloorDiv(
+    floordiv_of_sum: Int::FloorDiv(
         Int::Add(Int::Literal(1), Int::Literal(2)),
         Int::Add(Int::Literal(3), Int::Literal(4))
-    )];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "(1 + 2)//(3 + 4)");
-}
+    ) => "(1 + 2)//(3 + 4)",
 
-#[test]
-fn format_floormod_of_literals() {
-    let expr = tree![Int::FloorMod(Int::Literal(5), Int::Literal(10))];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "5%10");
-}
+    floormod: Int::FloorMod(Int::Literal(5), Int::Literal(10)) => "5%10",
 
-#[test]
-fn format_floormod_of_sum() {
-    let expr = tree![Int::FloorMod(
+    floormod_of_sum: Int::FloorMod(
         Int::Add(Int::Literal(1), Int::Literal(2)),
         Int::Add(Int::Literal(3), Int::Literal(4))
-    )];
-    let formatted = format!("{}", expr.visit_root().borrow());
-    assert_eq!(formatted, "(1 + 2)%(3 + 4)");
+    ) => "(1 + 2)%(3 + 4)",
 }

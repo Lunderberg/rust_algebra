@@ -98,10 +98,6 @@ impl EnumInfo {
         }
     }
 
-    // fn new_view_lifetime(&self) -> Option<syn::LifetimeDef> {
-    //     self._new_lifetime(parse_quote! { 'view })
-    // }
-
     fn ext_lifetime(&self) -> syn::Lifetime {
         match self.num_lifetimes {
             0 => parse_quote! {'static},
@@ -109,13 +105,6 @@ impl EnumInfo {
             _ => self.new_ext_lifetime().unwrap(),
         }
     }
-
-    // fn view_lifetime(&self) -> syn::Lifetime {
-    //     self.new_view_lifetime()
-    //         .map(|lifetime_def| lifetime_def.lifetime)
-    //         .or_else(|| self.lifetime_params().next())
-    //         .unwrap_or_else(|| parse_quote! {'view})
-    // }
 
     fn _generic_params(&self) -> impl Iterator<Item = syn::GenericParam> + '_ {
         std::iter::empty()
@@ -130,22 +119,6 @@ impl EnumInfo {
     fn generic_params(&self) -> Vec<syn::GenericParam> {
         self._generic_params().collect()
     }
-
-    // fn generic_params_with_view(&self) -> Vec<syn::GenericParam> {
-    //     let view = self.new_view_lifetime();
-    //     self._generic_params()
-    //         .map(|param| -> syn::GenericParam {
-    //             match (view.clone(), param) {
-    //                 (Some(view_def), syn::GenericParam::Lifetime(mut lifetime_def)) => {
-    //                     lifetime_def.bounds.push(view_def.lifetime);
-    //                     lifetime_def.into()
-    //                 }
-    //                 (_, param) => param,
-    //             }
-    //         })
-    //         .chain(view.clone().into_iter().map_into())
-    //         .collect()
-    // }
 
     fn _param_to_argument(param: syn::GenericParam) -> syn::GenericArgument {
         match param {
@@ -166,12 +139,6 @@ impl EnumInfo {
             .map(Self::_param_to_argument)
             .collect()
     }
-    // fn generic_args_with_view(&self) -> Vec<syn::GenericArgument> {
-    //     self._generic_params()
-    //         .chain(self.new_view_lifetime().into_iter().map_into())
-    //         .map(Self::_param_to_argument)
-    //         .collect()
-    // }
 }
 
 fn collect_annotated_enums(mut item_mod: syn::ItemMod) -> (syn::ItemMod, Vec<EnumInfo>) {

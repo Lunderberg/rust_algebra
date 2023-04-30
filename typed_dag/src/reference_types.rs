@@ -44,13 +44,6 @@ impl<'ext> RefType<'ext> for BuilderRef {
 impl<'ext, Target: 'ext> TypedNodeRef<'ext> for BuilderRef<Target> {
     type Untyped = BuilderRef;
     type Target = Target;
-
-    fn strip_type(&self) -> Self::Untyped {
-        BuilderRef {
-            abs_pos: self.abs_pos,
-            phantom: PhantomData,
-        }
-    }
 }
 
 /// A reference to an object, stored internally in [`Arena`]
@@ -89,13 +82,6 @@ impl<'ext> RefType<'ext> for StorageRef {
 impl<'ext, Target: 'ext> TypedNodeRef<'ext> for StorageRef<Target> {
     type Untyped = StorageRef;
     type Target = Target;
-
-    fn strip_type(&self) -> Self::Untyped {
-        StorageRef {
-            rel_pos: self.rel_pos,
-            phantom: PhantomData,
-        }
-    }
 }
 
 /// A reference to an object, exposed while traversing a tree
@@ -139,11 +125,4 @@ impl<'ext: 'view, 'view, Container, Target: 'ext> TypedNodeRef<'ext>
 {
     type Untyped = VisitingRef<'view, Container>;
     type Target = Target;
-
-    fn strip_type(&self) -> Self::Untyped {
-        VisitingRef {
-            view: self.view,
-            phantom: PhantomData,
-        }
-    }
 }

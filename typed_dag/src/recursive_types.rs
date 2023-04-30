@@ -135,10 +135,6 @@ pub trait TypedNodeRef<'ext>: Copy + Clone {
 
     /// The pointed-to object type.
     type Target: 'ext;
-
-    /// Remove the type annotation.  This is used internally, and
-    /// should generally not be called by a user.
-    fn strip_type(&self) -> Self::Untyped;
 }
 
 /// Defines a utility for converting between reference types

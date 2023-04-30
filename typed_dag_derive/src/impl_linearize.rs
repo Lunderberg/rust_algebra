@@ -45,14 +45,17 @@ impl EnumInfo {
             .cloned()
     }
 
-    fn ref_type_param(&self) -> syn::TypeParam {
-        let type_params: HashSet<_> = self.type_params().map(|param| param.ident).collect();
+    fn nonconflicting_type(&self, name: &str) -> syn::Ident {
+        let type_params: HashSet<syn::Ident> = self.type_params().map(|p| p.ident).collect();
         std::iter::empty()
-            .chain(std::iter::once(parse_quote! { Ref }))
-            .chain((1..).map(|i| format_ident!("Ref_{i}")))
+            .chain(std::iter::once(syn::Ident::new(name, Span::call_site())))
+            .chain((1..).map(|i| format_ident!("{name}_{i}")))
             .find(|ident| !type_params.contains(ident))
-            .map(|ident| parse_quote! {#ident})
             .unwrap()
+    }
+
+    fn ref_type_param(&self) -> syn::Ident {
+        self.nonconflicting_type("Ref")
     }
 
     fn lifetime_params(&self) -> impl Iterator<Item = syn::Lifetime> + '_ {
@@ -303,9 +306,13 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
     let generic_params = info.generic_params();
 
     let view_lifetime = info.nonconflicting_lifetime("view");
+    let subview_lifetime = info.nonconflicting_lifetime("subview");
 
-    let (convert_arms, view_arms) = {
-        let arm_builder = |update_rhs: fn(&syn::Ident) -> syn::Expr| -> Vec<syn::Arm> {
+    let (convert_arms, view_arms, subview_arms) = {
+        // TODO: De-dup with copy in generate_try_expand
+        let arm_builder = |update_value: fn(&syn::Ident) -> syn::Expr,
+                           update_node_ref: fn(&syn::Ident) -> syn::Expr|
+         -> Vec<syn::Arm> {
             info.item_enum
                 .variants
                 .iter()
@@ -322,10 +329,10 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
                                 .map(|(i, field)| {
                                     let field_ident = format_ident!("field_{i}");
                                     let rhs_expr = if info.is_recursive_type(&field.ty) {
-                                        let rhs = update_rhs(&field_ident);
+                                        let rhs = update_node_ref(&field_ident);
                                         parse_quote! { converter.convert_ref(#rhs) }
                                     } else {
-                                        parse_quote! { #field_ident }
+                                        update_value(&field_ident)
                                     };
 
                                     (field_ident, rhs_expr)
@@ -346,8 +353,9 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
                 .collect()
         };
         (
-            arm_builder(|x| parse_quote! { &#x }),
-            arm_builder(|x| parse_quote! { #x }),
+            arm_builder(|x| parse_quote! { #x }, |x| parse_quote! {&#x}),
+            arm_builder(|x| parse_quote! { #x }, |x| parse_quote! { #x }),
+            arm_builder(|x| parse_quote! { *#x }, |x| parse_quote! { #x }),
         )
     };
 
@@ -399,6 +407,30 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
             {
                 match from_obj {
                     #( #view_arms )*
+                }
+            }
+
+            fn subview<#view_lifetime, #subview_lifetime, FromRef, ToRef, Converter>(
+                from_obj: &#subview_lifetime Self::Sibling<FromRef>,
+                converter: Converter,
+            ) -> Self::Sibling<ToRef>
+            where
+                #ext_lifetime: #view_lifetime,
+                #view_lifetime: #subview_lifetime,
+                Self: Sized,
+
+                Converter: ::typed_dag::RefConverter<#ext_lifetime,
+                                                 FromRef = FromRef,
+                                                 ToRef = ToRef>,
+
+                FromRef: ::typed_dag::RefType<#ext_lifetime,
+                                          ValueRef = ::typed_dag::ValueVisitor<#view_lifetime>>,
+
+                ToRef: ::typed_dag::RefType<#ext_lifetime,
+                                        ValueRef = ::typed_dag::ValueVisitor<#subview_lifetime>>,
+            {
+                match from_obj {
+                    #( #subview_arms )*
                 }
             }
         }
@@ -516,6 +548,7 @@ fn generate_visitor_trait(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + 
     let ident = &info.item_enum.ident;
     let ext_lifetime = info.ext_lifetime();
     let ref_type_param = info.ref_type_param();
+    let error_type_param = info.nonconflicting_type("Error");
 
     let new_view_lifetime = match info.num_lifetimes {
         1 => None,
@@ -548,43 +581,197 @@ fn generate_visitor_trait(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + 
         )
         .collect();
 
-    let visitor_of_bounds = info.referenced_enums.iter().map(|ref_enum| {
-        let ref_ident = &ref_enum.ident;
-        parse_quote! {
-            Self: ::typed_dag::VisitorOf<
+    let make_trait_bounds = |error: proc_macro2::TokenStream| -> Vec<syn::WherePredicate> {
+        let visitor_of_bounds = info.referenced_enums.iter().map(|ref_enum| {
+            let ref_ident = &ref_enum.ident;
+            parse_quote! {
+                Self: ::typed_dag::VisitorOf<
                     #ext_lifetime,
-                super::generic_enum::#ref_ident<#(#obj_args),*>,
-                ValueRef = ::typed_dag::ValueVisitor<#view_lifetime>
-                    >
+                    super::generic_enum::#ref_ident<#(#obj_args),*>,
+                    ValueRef = ::typed_dag::ValueVisitor<#view_lifetime>,
+                    Error = #error,
+                >
+            }
+        });
+        let lifetime_bounds = new_view_lifetime.iter().flat_map(|view| {
+            info.lifetime_params()
+                .map(move |lifetime| parse_quote! { #lifetime : #view })
+        });
+
+        let trait_bounds: Vec<syn::WherePredicate> = {
+            std::iter::empty()
+                .chain(visitor_of_bounds)
+                .chain(lifetime_bounds)
+                .collect()
+        };
+        trait_bounds
+    };
+
+    let trait_def = {
+        let trait_bounds =
+            make_trait_bounds(quote! { <Self as #ident<#(#trait_params),*>>::Error });
+        parse_quote! {
+            pub trait #ident<#(#trait_params),*>
+            where
+                #( #trait_bounds, )*
+            {
+                type Error: ::std::fmt::Debug;
+            }
         }
-    });
-    let lifetime_bounds = new_view_lifetime.iter().flat_map(|view| {
-        info.lifetime_params()
-            .map(move |lifetime| parse_quote! { #lifetime : #view })
-    });
-
-    let trait_bounds: Vec<syn::WherePredicate> = {
-        std::iter::empty()
-            .chain(visitor_of_bounds)
-            .chain(lifetime_bounds)
-            .collect()
     };
-
-    let trait_def = parse_quote! {
-        pub trait #ident<#(#trait_params),*>
-        where
-            #( #trait_bounds, )*
-        { }
-    };
-    let trait_impl = parse_quote! {
-        impl<#(#trait_params,)* #ref_type_param>
-            #ident<#(#trait_args,)*> for #ref_type_param
-        where
-            #( #trait_bounds, )*
-        {}
+    let trait_impl = {
+        let trait_bounds = make_trait_bounds(quote! { #error_type_param });
+        parse_quote! {
+            impl<#(#trait_params,)* #ref_type_param, #error_type_param>
+                #ident<#(#trait_args,)*> for #ref_type_param
+            where
+                #( #trait_bounds,)*
+                #error_type_param: ::std::fmt::Debug,
+            {
+                type Error = #error_type_param;
+            }
+        }
     };
 
     vec![trait_def, trait_impl].into_iter()
+}
+
+fn generate_try_expand(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + '_ {
+    let ident = &info.item_enum.ident;
+    let this_enum = quote! { super::generic_enum::#ident };
+    let ext_lifetime = info.ext_lifetime();
+    let ref_type_param = info.ref_type_param();
+
+    let new_view_lifetime = match info.num_lifetimes {
+        1 => None,
+        _ => Some(info.nonconflicting_lifetime("view")),
+    };
+    let view_lifetime = new_view_lifetime
+        .clone()
+        .or_else(|| info.lifetime_params().next())
+        .unwrap();
+
+    // let obj_args = info.generic_args();
+
+    let trait_params: Vec<_> = info
+        .generic_params()
+        .into_iter()
+        .chain(
+            new_view_lifetime
+                .iter()
+                .map(|lifetime| syn::LifetimeParam::new(lifetime.clone()).into()),
+        )
+        .collect();
+
+    let trait_args: Vec<_> = info
+        .generic_args()
+        .into_iter()
+        .chain(
+            new_view_lifetime
+                .iter()
+                .map(|lifetime| syn::GenericArgument::Lifetime(lifetime.clone())),
+        )
+        .collect();
+
+    let generic_args = info.generic_args();
+
+    // let visitor_of_bounds = info.referenced_enums.iter().map(|ref_enum| {
+    //     let ref_ident = &ref_enum.ident;
+    //     parse_quote! {
+    //         Self: ::typed_dag::VisitorOf<
+    //                 #ext_lifetime,
+    //             super::generic_enum::#ref_ident<#(#obj_args),*>,
+    //             ValueRef = ::typed_dag::ValueVisitor<#view_lifetime>
+    //                 >
+    //     }
+    // });
+    // let lifetime_bounds = new_view_lifetime.iter().flat_map(|view| {
+    //     info.lifetime_params()
+    //         .map(move |lifetime| parse_quote! { #lifetime : #view })
+    // });
+
+    // let trait_bounds: Vec<syn::WherePredicate> = {
+    //     std::iter::empty()
+    //         .chain(visitor_of_bounds)
+    //         .chain(lifetime_bounds)
+    //         .collect()
+    // };
+
+    // TODO: De-dup with copy in generate_recursive_family
+    let arm_builder = |update_value: fn(&syn::Ident) -> syn::Expr,
+                       update_node_ref: fn(&syn::Ident) -> syn::Expr|
+     -> Vec<syn::Arm> {
+        info.item_enum
+            .variants
+            .iter()
+            .map(|variant: &syn::Variant| -> syn::Arm {
+                let arm_ident = &variant.ident;
+
+                match &variant.fields {
+                    syn::Fields::Named(_) => todo!("Named enum fields"),
+
+                    syn::Fields::Unnamed(fields) => {
+                        let (lhs_names, rhs_exprs): (Vec<_>, Vec<syn::Expr>) = fields
+                            .unnamed
+                            .iter()
+                            .enumerate()
+                            .map(|(i, field)| {
+                                let field_ident = format_ident!("field_{i}");
+                                let rhs_expr = if info.is_recursive_type(&field.ty) {
+                                    update_node_ref(&field_ident)
+                                } else {
+                                    update_value(&field_ident)
+                                };
+
+                                (field_ident, rhs_expr)
+                            })
+                            .unzip();
+
+                        parse_quote! {
+                            #this_enum::#arm_ident(#(#lhs_names),*) =>
+                                #this_enum::#arm_ident(#(#rhs_exprs),*),
+                        }
+                    }
+
+                    syn::Fields::Unit => parse_quote! {
+                        #this_enum::#arm_ident => #this_enum::#arm_ident,
+                    },
+                }
+            })
+            .collect()
+    };
+
+    let match_arms = arm_builder(
+        |x| parse_quote! { *#x },
+        |x| parse_quote! { #x.try_expand()? },
+    );
+
+    let target = quote! { super::generic_enum::#ident<#(#generic_args,)*> };
+
+    let trait_impl = parse_quote! {
+        impl<#(#trait_params,)* #ref_type_param>
+            ::typed_dag::VisitorOf<#ext_lifetime, #target>
+            for ::typed_dag::NestedVisitor<#view_lifetime, #ref_type_param>
+        where
+            #ref_type_param: super::visitor::#ident<#(#trait_args,)*>,
+        {
+            type Error = <#ref_type_param as super::visitor::#ident<#(#trait_args,)*>>::Error;
+
+            fn try_expand(obj: &Self::Node<#target>) -> Result<
+                    <#target as ::typed_dag::RecursiveFamily<#ext_lifetime>>::Sibling<Self>,
+                Self::Error> {
+                use ::typed_dag::Visitable;
+                let nested_obj = match obj {
+                    #(
+                        #match_arms
+                    )*
+                };
+                Ok(nested_obj)
+            }
+        }
+    };
+
+    std::iter::once(trait_impl)
 }
 
 fn apply_generator<'a, G, I>(
@@ -660,6 +847,11 @@ pub fn linearize_recursive_enums(
             &enums,
             Some("visitor"),
             generate_visitor_trait,
+        ))
+        .chain(apply_generator(
+            &enums,
+            Some("nested_expand"),
+            generate_try_expand,
         ))
         .into_group_map()
         .into_iter()

@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 
-use crate::{RefType, TypedNodeRef, ValueOwner, ValueVisitor};
+use crate::{RecursiveFamily, RecursiveObj, RefType, TypedNodeRef, ValueOwner, ValueVisitor};
 
 /// A reference to an object, returned from [`Arena::push`]
 ///
@@ -38,10 +38,10 @@ impl<Target> Debug for BuilderRef<Target> {
 }
 impl<'ext> RefType<'ext> for BuilderRef {
     type ValueRef = ValueOwner;
-    type Node<Target: 'ext> = BuilderRef<Target>;
+    type Node<Target: RecursiveFamily<'ext>> = BuilderRef<Target>;
 }
 
-impl<'ext, Target: 'ext> TypedNodeRef<'ext> for BuilderRef<Target> {
+impl<'ext, Target: RecursiveFamily<'ext>> TypedNodeRef<'ext> for BuilderRef<Target> {
     type Untyped = BuilderRef;
     type Target = Target;
 }
@@ -77,9 +77,9 @@ impl<Target> Debug for StorageRef<Target> {
 
 impl<'ext> RefType<'ext> for StorageRef {
     type ValueRef = ValueOwner;
-    type Node<Target: 'ext> = StorageRef<Target>;
+    type Node<Target: RecursiveFamily<'ext>> = StorageRef<Target>;
 }
-impl<'ext, Target: 'ext> TypedNodeRef<'ext> for StorageRef<Target> {
+impl<'ext, Target: RecursiveFamily<'ext>> TypedNodeRef<'ext> for StorageRef<Target> {
     type Untyped = StorageRef;
     type Target = Target;
 }
@@ -118,11 +118,32 @@ impl<'view, Container, Target> Debug for VisitingRef<'view, Container, Target> {
 
 impl<'ext: 'view, 'view, Container> RefType<'ext> for VisitingRef<'view, Container> {
     type ValueRef = ValueVisitor<'view>;
-    type Node<Target: 'ext> = VisitingRef<'view, Container, Target>;
+    type Node<Target: RecursiveFamily<'ext>> = VisitingRef<'view, Container, Target>;
 }
-impl<'ext: 'view, 'view, Container, Target: 'ext> TypedNodeRef<'ext>
+impl<'ext: 'view, 'view, Container, Target: RecursiveFamily<'ext>> TypedNodeRef<'ext>
     for VisitingRef<'view, Container, Target>
 {
     type Untyped = VisitingRef<'view, Container>;
     type Target = Target;
+}
+
+pub struct NestedVisitor<'view, R, Target = ()> {
+    _inner: R,
+    phantom: PhantomData<&'view Target>,
+}
+impl<'ext: 'view, 'view, R: RefType<'ext, ValueRef = ValueVisitor<'view>>> RefType<'ext>
+    for NestedVisitor<'view, R>
+{
+    type ValueRef = ValueVisitor<'view>;
+    type Node<Target: RecursiveFamily<'ext>> = Target::Sibling<R>;
+}
+impl<
+        'ext: 'view,
+        'view,
+        R: RefType<'ext, ValueRef = ValueVisitor<'view>>,
+        Obj: RecursiveObj<'ext, Ref = R>,
+    > TypedNodeRef<'ext> for Obj
+{
+    type Untyped = NestedVisitor<'view, R>;
+    type Target = Obj::Family;
 }

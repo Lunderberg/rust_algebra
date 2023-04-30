@@ -62,17 +62,15 @@ impl<
         'ext,
         'view,
         Target: RecursiveFamily<'ext>,
-        Untyped,
+        Untyped: VisitorOf<'ext, Target, Node<Target> = Self>,
         TypedRef: TypedNodeRef<'ext, Target = Target, Untyped = Untyped>,
     > Visitable<'ext> for TypedRef
-where
-    Untyped: VisitorOf<'ext, Target, Node<Target> = Self>,
 {
     type Error = <TypedRef::Untyped as VisitorOf<'ext, Target>>::Error;
 
     fn try_expand(
         &self,
     ) -> Result<<Self::Target as RecursiveFamily<'ext>>::Sibling<Self::Untyped>, Self::Error> {
-        <Untyped as VisitorOf<'ext, Target>>::try_expand(self)
+        Untyped::try_expand(self)
     }
 }

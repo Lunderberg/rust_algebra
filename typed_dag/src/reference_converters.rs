@@ -1,4 +1,4 @@
-use crate::{BuilderRef, Error, RefConverter, RefType, StorageRef, VisitingRef};
+use crate::{BuilderRef, Error, RecursiveFamily, RefConverter, RefType, StorageRef, VisitingRef};
 use std::marker::PhantomData;
 
 /// Convert from a BuilderRef to StorageRef
@@ -15,7 +15,7 @@ impl<'ext> RefConverter<'ext> for BuilderToStorage {
     type FromRef = BuilderRef;
     type ToRef = StorageRef;
 
-    fn convert_ref<Target: 'ext>(
+    fn convert_ref<Target: RecursiveFamily<'ext>>(
         &self,
         from_ref: &<Self::FromRef as RefType<'ext>>::Node<Target>,
     ) -> <Self::ToRef as RefType<'ext>>::Node<Target> {
@@ -49,7 +49,7 @@ impl<'ext: 'view, 'view, Container> RefConverter<'ext> for StorageToVisiting<'vi
     type FromRef = StorageRef;
     type ToRef = VisitingRef<'view, Container>;
 
-    fn convert_ref<Target: 'ext>(
+    fn convert_ref<Target: RecursiveFamily<'ext>>(
         &self,
         from_ref: &<Self::FromRef as RefType<'ext>>::Node<Target>,
     ) -> <Self::ToRef as RefType<'ext>>::Node<Target> {

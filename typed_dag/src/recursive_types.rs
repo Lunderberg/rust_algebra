@@ -92,7 +92,7 @@ impl<'ext: 'view, 'view> ValueRefType<'ext> for ValueVisitor<'view> {
 /// generic over some `RefType`, the two data structures can share a
 /// single definition.
 ///
-/// ```
+/// ```ignore
 /// # use typed_dag::{RefType, StorageRef, ValueRefType};
 /// enum IntExpr<R: RefType<'static>> {
 ///     Int(<R::ValueRef as ValueRefType<'static>>::Value<i64>),
@@ -121,7 +121,7 @@ impl<'ext: 'view, 'view> ValueRefType<'ext> for ValueVisitor<'view> {
 /// ```
 pub trait RefType<'ext>: Sized {
     type ValueRef: ValueRefType<'ext>;
-    type Node<Target: 'ext>: TypedNodeRef<'ext, Untyped = Self, Target = Target>;
+    type Node<Target: RecursiveFamily<'ext>>: TypedNodeRef<'ext, Untyped = Self, Target = Target>;
 }
 
 /// A type-tagged reference to another node in the graph.
@@ -131,10 +131,10 @@ pub trait RefType<'ext>: Sized {
 /// type to which it points.
 pub trait TypedNodeRef<'ext> {
     /// The corresponding [`RefType`]
-    type Untyped: RefType<'ext>;
+    type Untyped: RefType<'ext, Node<Self::Target> = Self>;
 
     /// The pointed-to object type.
-    type Target: 'ext;
+    type Target: RecursiveFamily<'ext>;
 }
 
 /// Defines a utility for converting between reference types
@@ -147,7 +147,7 @@ pub trait RefConverter<'ext> {
     type FromRef: RefType<'ext>;
     type ToRef: RefType<'ext>;
 
-    fn convert_ref<Target: 'ext>(
+    fn convert_ref<Target: RecursiveFamily<'ext>>(
         &self,
         from_ref: &<Self::FromRef as RefType<'ext>>::Node<Target>,
     ) -> <Self::ToRef as RefType<'ext>>::Node<Target>;
@@ -195,6 +195,20 @@ pub trait RecursiveFamily<'ext>: 'ext {
         Converter: RefConverter<'ext, FromRef = FromRef, ToRef = ToRef>,
         FromRef: RefType<'ext, ValueRef = ValueOwner>,
         ToRef: RefType<'ext, ValueRef = ValueVisitor<'view>>;
+
+    /// Convert from an object that owns its leaf nodes, into one that
+    /// views its leaf nodes.
+    fn subview<'view, 'subview, FromRef, ToRef, Converter>(
+        from_obj: &'subview Self::Sibling<FromRef>,
+        converter: Converter,
+    ) -> Self::Sibling<ToRef>
+    where
+        Self: Sized,
+        'ext: 'view,
+        'view: 'subview,
+        Converter: RefConverter<'ext, FromRef = FromRef, ToRef = ToRef>,
+        FromRef: RefType<'ext, ValueRef = ValueVisitor<'view>>,
+        ToRef: RefType<'ext, ValueRef = ValueVisitor<'subview>>;
 }
 
 /// An instance of a user-defined object

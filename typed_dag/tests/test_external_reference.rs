@@ -11,7 +11,7 @@ mod expr {
 
 impl<'a, V: expr::visitor::IntExpr<'a>> expr::IntExpr<'a, V> {
     fn eval(&self) -> i64 {
-        match self {
+        match &self {
             Self::Int(val) => ***val,
             Self::Add(a, b) => a.expand().eval() + b.expand().eval(),
         }

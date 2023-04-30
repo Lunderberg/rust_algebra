@@ -119,7 +119,7 @@ impl<'ext: 'view, 'view> ValueRefType<'ext> for ValueVisitor<'view> {
 ///     }
 /// }
 /// ```
-pub trait RefType<'ext>: Sized + Copy + Clone {
+pub trait RefType<'ext>: Sized {
     type ValueRef: ValueRefType<'ext>;
     type Node<Target: 'ext>: TypedNodeRef<'ext, Untyped = Self, Target = Target>;
 }
@@ -129,7 +129,7 @@ pub trait RefType<'ext>: Sized + Copy + Clone {
 /// Each `TypedNodeRef` has the same in-memory representation as the
 /// corresponding [`RefType`], with a compile-time tag indicating the
 /// type to which it points.
-pub trait TypedNodeRef<'ext>: Copy + Clone {
+pub trait TypedNodeRef<'ext> {
     /// The corresponding [`RefType`]
     type Untyped: RefType<'ext>;
 
@@ -149,7 +149,7 @@ pub trait RefConverter<'ext> {
 
     fn convert_ref<Target: 'ext>(
         &self,
-        from_ref: <Self::FromRef as RefType<'ext>>::Node<Target>,
+        from_ref: &<Self::FromRef as RefType<'ext>>::Node<Target>,
     ) -> <Self::ToRef as RefType<'ext>>::Node<Target>;
 }
 

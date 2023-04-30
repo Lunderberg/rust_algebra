@@ -17,7 +17,7 @@ pub trait VisitorOf<'ext, Target: RecursiveFamily<'ext>>: RefType<'ext> {
     /// For a well-formed DAG, this should never fail.  Failure can
     /// occur due to a relative index being out of range, or due to a
     /// pointed-to object having an unexpected type.
-    fn try_expand(typed_ref: Self::Node<Target>) -> Result<Target::Sibling<Self>, Self::Error>;
+    fn try_expand(typed_ref: &Self::Node<Target>) -> Result<Target::Sibling<Self>, Self::Error>;
 }
 impl<'ext: 'view, 'view, Container, Target> VisitorOf<'ext, Target>
     for VisitingRef<'view, Container>
@@ -28,7 +28,7 @@ where
 {
     type Error = Error;
 
-    fn try_expand(typed_ref: Self::Node<Target>) -> Result<Target::Sibling<Self>, Self::Error> {
+    fn try_expand(typed_ref: &Self::Node<Target>) -> Result<Target::Sibling<Self>, Self::Error> {
         let container = typed_ref.view.last().ok_or(Error::EmptyExpression)?;
         let storage_obj = container.try_as_ref()?;
         let converter = StorageToVisiting {
@@ -44,12 +44,12 @@ pub trait Visitable<'ext>: TypedNodeRef<'ext> {
     type Error: Debug;
 
     fn try_expand(
-        self,
+        &self,
     ) -> Result<<Self::Target as RecursiveFamily<'ext>>::Sibling<Self::Untyped>, Self::Error>
     where
         Self::Target: RecursiveFamily<'ext>;
 
-    fn expand(self) -> <Self::Target as RecursiveFamily<'ext>>::Sibling<Self::Untyped>
+    fn expand(&self) -> <Self::Target as RecursiveFamily<'ext>>::Sibling<Self::Untyped>
     where
         Self: Sized,
         Self::Target: RecursiveFamily<'ext>,
@@ -71,7 +71,7 @@ where
     type Error = <TypedRef::Untyped as VisitorOf<'ext, Target>>::Error;
 
     fn try_expand(
-        self,
+        &self,
     ) -> Result<<Self::Target as RecursiveFamily<'ext>>::Sibling<Self::Untyped>, Self::Error> {
         <Untyped as VisitorOf<'ext, Target>>::try_expand(self)
     }

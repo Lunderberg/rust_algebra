@@ -346,8 +346,8 @@ fn generate_recursive_family<'a>(info: &'a EnumInfo) -> impl Iterator<Item = syn
                 .collect()
         };
         (
-            arm_builder(|x| parse_quote! {#x}),
-            arm_builder(|x| parse_quote! { *#x }),
+            arm_builder(|x| parse_quote! { &#x }),
+            arm_builder(|x| parse_quote! { #x }),
         )
     };
 

@@ -17,7 +17,7 @@ impl<'ext> RefConverter<'ext> for BuilderToStorage {
 
     fn convert_ref<Target: 'ext>(
         &self,
-        from_ref: <Self::FromRef as RefType<'ext>>::Node<Target>,
+        from_ref: &<Self::FromRef as RefType<'ext>>::Node<Target>,
     ) -> <Self::ToRef as RefType<'ext>>::Node<Target> {
         let rel_pos = self
             .new_storage_pos
@@ -51,7 +51,7 @@ impl<'ext: 'view, 'view, Container> RefConverter<'ext> for StorageToVisiting<'vi
 
     fn convert_ref<Target: 'ext>(
         &self,
-        from_ref: <Self::FromRef as RefType<'ext>>::Node<Target>,
+        from_ref: &<Self::FromRef as RefType<'ext>>::Node<Target>,
     ) -> <Self::ToRef as RefType<'ext>>::Node<Target> {
         let index = self
             .view

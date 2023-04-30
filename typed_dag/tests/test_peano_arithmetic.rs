@@ -25,7 +25,7 @@ impl<'view, V: peano::visitor::Number<'view>> peano::Number<V> {
     fn value(&self) -> usize {
         match self {
             peano::Number::Zero => 0,
-            peano::Number::Successor(prev) => prev.borrow().value() + 1,
+            peano::Number::Successor(prev) => prev.expand().value() + 1,
         }
     }
 }
@@ -33,6 +33,6 @@ impl<'view, V: peano::visitor::Number<'view>> peano::Number<V> {
 #[test]
 fn call_instance_method() {
     let three = peano::Number::new(3);
-    let root_node: peano::Number<_> = three.visit_root().borrow();
+    let root_node: peano::Number<_> = three.visit_root().expand();
     assert_eq!(root_node.value(), 3);
 }

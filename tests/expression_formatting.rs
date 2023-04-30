@@ -15,7 +15,7 @@ fn validate<'ext: 'view, 'view, Container, Target>(
     VisitingRef<'view, Container>: VisitorOf<'ext, Target>,
     <Target as RecursiveFamily<'ext>>::Sibling<VisitingRef<'view, Container>>: Display,
 {
-    let formatted = format!("{}", arena.visit_root().borrow());
+    let formatted = format!("{}", arena.visit_root().expand());
     assert_eq!(formatted, expected);
 }
 

@@ -17,7 +17,7 @@ pub trait VisitorOf<'ext, Target: RecursiveFamily<'ext>>: RefType<'ext> {
     /// For a well-formed DAG, this should never fail.  Failure can
     /// occur due to a relative index being out of range, or due to a
     /// pointed-to object having an unexpected type.
-    fn try_borrow(self) -> Result<Target::Sibling<Self>, Self::Error>;
+    fn try_expand(self) -> Result<Target::Sibling<Self>, Self::Error>;
 }
 impl<'ext: 'view, 'view, Container, Target> VisitorOf<'ext, Target>
     for VisitingRef<'view, Container>
@@ -28,7 +28,7 @@ where
 {
     type Error = Error;
 
-    fn try_borrow(self) -> Result<Target::Sibling<Self>, Self::Error> {
+    fn try_expand(self) -> Result<Target::Sibling<Self>, Self::Error> {
         let container = self.view.last().ok_or(Error::EmptyExpression)?;
         let storage_obj = container.try_as_ref()?;
         let converter = StorageToVisiting { view: self.view };
@@ -41,19 +41,19 @@ where
 pub trait Visitable<'ext>: TypedNodeRef<'ext> {
     type Error: Debug;
 
-    fn try_borrow(
+    fn try_expand(
         self,
     ) -> Result<<Self::Target as RecursiveFamily<'ext>>::Sibling<Self::Untyped>, Self::Error>
     where
         Self::Target: RecursiveFamily<'ext>;
 
-    fn borrow(self) -> <Self::Target as RecursiveFamily<'ext>>::Sibling<Self::Untyped>
+    fn expand(self) -> <Self::Target as RecursiveFamily<'ext>>::Sibling<Self::Untyped>
     where
         Self: Sized,
         Self::Target: RecursiveFamily<'ext>,
         Self::Error: Debug,
     {
-        self.try_borrow().unwrap()
+        self.try_expand().unwrap()
     }
 }
 impl<'ext, 'view, Target: RecursiveFamily<'ext>, TypedRef: TypedNodeRef<'ext, Target = Target>>
@@ -63,9 +63,9 @@ where
 {
     type Error = <TypedRef::Untyped as VisitorOf<'ext, Target>>::Error;
 
-    fn try_borrow(
+    fn try_expand(
         self,
     ) -> Result<<Self::Target as RecursiveFamily<'ext>>::Sibling<Self::Untyped>, Self::Error> {
-        self.strip_type().try_borrow()
+        self.strip_type().try_expand()
     }
 }

@@ -64,13 +64,13 @@ impl ParseExpr {
             fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
                 match self.expr {
                     ParseExpr::Int(expr) => {
-                        write!(f, "{}", self.arena.visit_by_ref(*expr).borrow())
+                        write!(f, "{}", self.arena.visit_by_ref(*expr).expand())
                     }
                     ParseExpr::Bool(expr) => {
-                        write!(f, "{}", self.arena.visit_by_ref(*expr).borrow())
+                        write!(f, "{}", self.arena.visit_by_ref(*expr).expand())
                     }
                     ParseExpr::Rational(expr) => {
-                        write!(f, "{}", self.arena.visit_by_ref(*expr).borrow())
+                        write!(f, "{}", self.arena.visit_by_ref(*expr).expand())
                     }
                 }
             }
@@ -160,7 +160,7 @@ impl<'arena, I: Iterator<Item = Result<Token, Error>>> Parser<'arena, I> {
                                         ParseExpr::Bool(expr) => {
                                             Err(Error::InvalidOperation(format!(
                                                 "Cannot negate boolean expression '{}'",
-                                                self.arena.visit_by_ref(expr).borrow()
+                                                self.arena.visit_by_ref(expr).expand()
                                             )))
                                         }
                                         ParseExpr::Rational(expr) => {

@@ -227,7 +227,7 @@ pub trait RecursiveObj<'ext> {
 
 pub trait VisitorOf<'ext, Target: RecursiveFamily<'ext>>: RefType<'ext> {
     type Error: Debug;
-    fn try_borrow(self) -> Result<Target::Sibling<Self>, Self::Error>;
+    fn try_expand(self) -> Result<Target::Sibling<Self>, Self::Error>;
 }
 impl<'ext: 'view, 'view, Container, Target> VisitorOf<'ext, Target>
     for VisitingRef<'view, Container>
@@ -237,7 +237,7 @@ where
     Container: From<Target::Sibling<StorageRef>>,
 {
     type Error = ();
-    fn try_borrow(self) -> Result<Target::Sibling<Self>, Self::Error> {
+    fn try_expand(self) -> Result<Target::Sibling<Self>, Self::Error> {
         let container = self.view.last().unwrap();
         let storage_obj = container.try_as_ref().unwrap();
         let converter = StorageToVisiting { view: self.view };
@@ -249,18 +249,18 @@ where
 pub trait Visitable<'ext>: TypedNodeRef<'ext> {
     type Error: Debug;
 
-    fn try_borrow(
+    fn try_expand(
         self,
     ) -> Result<<Self::Target as RecursiveFamily<'ext>>::Sibling<Self::Untyped>, Self::Error>
     where
         Self::Target: RecursiveFamily<'ext>;
 
-    fn borrow(self) -> <Self::Target as RecursiveFamily<'ext>>::Sibling<Self::Untyped>
+    fn expand(self) -> <Self::Target as RecursiveFamily<'ext>>::Sibling<Self::Untyped>
     where
         Self: Sized,
         Self::Target: RecursiveFamily<'ext>,
     {
-        self.try_borrow().unwrap()
+        self.try_expand().unwrap()
     }
 }
 impl<'ext, 'view, Target: RecursiveFamily<'ext>, TypedRef: TypedNodeRef<'ext, Target = Target>>
@@ -270,20 +270,20 @@ where
 {
     type Error = <TypedRef::Untyped as VisitorOf<'ext, Target>>::Error;
 
-    fn try_borrow(
+    fn try_expand(
         self,
     ) -> Result<<Self::Target as RecursiveFamily<'ext>>::Sibling<Self::Untyped>, Self::Error> {
-        self.strip_type().try_borrow()
+        self.strip_type().try_expand()
     }
 }
 
 impl<'view, Container, Target> VisitingRef<'view, Container, Target> {
-    pub fn borrow<'ext: 'view>(self) -> Target::Sibling<VisitingRef<'view, Container>>
+    pub fn expand<'ext: 'view>(self) -> Target::Sibling<VisitingRef<'view, Container>>
     where
         Target: RecursiveFamily<'ext>,
         VisitingRef<'view, Container>: VisitorOf<'ext, Target>,
     {
-        self.strip_type().try_borrow().unwrap()
+        self.strip_type().try_expand().unwrap()
     }
 }
 
@@ -446,7 +446,7 @@ mod test {
                 match self {
                     IntExpr::Int(a) => **a,
                     IntExpr::IntRef(a) => ***a,
-                    IntExpr::Add(a, b) => a.borrow().eval() + b.borrow().eval(),
+                    IntExpr::Add(a, b) => a.expand().eval() + b.expand().eval(),
                 }
             }
         }
@@ -525,7 +525,7 @@ mod test {
             pub fn eval(&self) -> i64 {
                 match self {
                     IntExpr::Int(a) => **a,
-                    IntExpr::Add(a, b) => a.borrow().eval() + b.borrow().eval(),
+                    IntExpr::Add(a, b) => a.expand().eval() + b.expand().eval(),
                 }
             }
         }
@@ -562,7 +562,7 @@ mod test {
                 phantom: PhantomData,
             },
         );
-        let root_visiting: IntExpr<VisitingRef<_>> = root_ref.borrow();
+        let root_visiting: IntExpr<VisitingRef<_>> = root_ref.expand();
 
         assert_eq!(root_visiting.eval(), 15);
         assert_eq!(expected_root_visiting.eval(), 15);
@@ -579,7 +579,7 @@ mod test {
         let rhs = arena.push(IntExpr::IntRef(&x));
         let sum = arena.push(IntExpr::Add(lhs, rhs));
         let root_ref = arena.visit_by_ref(sum);
-        let root_visiting = root_ref.borrow();
+        let root_visiting = root_ref.expand();
 
         assert_eq!(root_visiting.eval(), 15);
     }
@@ -614,7 +614,7 @@ mod test {
                 phantom: PhantomData,
             },
         );
-        let root_visiting: IntExpr<VisitingRef<'_, _>> = root_ref.borrow();
+        let root_visiting: IntExpr<VisitingRef<'_, _>> = root_ref.expand();
 
         assert_eq!(root_visiting.eval(), 15);
         assert_eq!(expected_root_visiting.eval(), 15);
@@ -630,7 +630,7 @@ mod test {
         let sum = arena.push(IntExpr::Add(lhs, rhs));
 
         let root_ref = arena.visit_by_ref(sum);
-        let root_obj = root_ref.borrow();
+        let root_obj = root_ref.expand();
 
         assert_eq!(root_obj.eval(), 15);
     }
@@ -646,7 +646,7 @@ mod test {
             sum
         });
         let root_ref = arena.visit_root();
-        let root_obj = root_ref.borrow();
+        let root_obj = root_ref.expand();
 
         assert_eq!(root_obj.eval(), 15);
     }

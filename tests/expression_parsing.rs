@@ -9,7 +9,7 @@ macro_rules! test_cases {
             fn $name() -> Result<(), Error> {
                 let parsed = Arena::try_build(|arena| parse_expr($str.chars(), arena))?;
                 let expected = tree!{Expr::$outer_type($outer_type::$outer($($inner),*)) };
-                assert_eq!(parsed.visit_root().borrow(), expected.visit_root().borrow());
+                assert_eq!(parsed.visit_root().expand(), expected.visit_root().expand());
                 Ok(())
             }
         )*

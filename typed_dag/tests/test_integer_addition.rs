@@ -13,7 +13,7 @@ impl<'view, V: expr::visitor::IntExpr<'view>> expr::IntExpr<V> {
     fn eval(&self) -> i64 {
         match self {
             Self::Int(val) => **val,
-            Self::Add(a, b) => a.borrow().eval() + b.borrow().eval(),
+            Self::Add(a, b) => a.expand().eval() + b.expand().eval(),
         }
     }
 }
@@ -27,6 +27,6 @@ fn eval() {
         let c = arena.push(IntExpr::Add(a, b));
         c
     });
-    let root_node: expr::IntExpr<_> = expression.visit_root().borrow();
+    let root_node: expr::IntExpr<_> = expression.visit_root().expand();
     assert_eq!(root_node.eval(), 15);
 }

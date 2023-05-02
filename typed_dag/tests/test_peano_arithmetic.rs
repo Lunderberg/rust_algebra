@@ -10,7 +10,7 @@ mod peano {
 }
 
 impl peano::Number {
-    fn new(val: u8) -> Arena<peano::container::Number, peano::Number> {
+    fn new(val: u8) -> Arena<peano::default_container::Number, peano::Number> {
         Arena::build(|arena| {
             let mut a = arena.push(peano::Number::Zero);
             for _ in 0..val {

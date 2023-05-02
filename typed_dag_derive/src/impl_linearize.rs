@@ -469,64 +469,76 @@ fn generate_container_enum(info: &EnumInfo) -> impl Iterator<Item = syn::Item> {
     std::iter::once(item)
 }
 
-fn generate_container_impl(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + '_ {
+fn generate_container_from(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + '_ {
     let ident = &info.item_enum.ident;
     let generic_params = info.generic_params();
     let generic_args = info.generic_args();
 
-    info.referenced_enums
-        .iter()
-        .map(move |ref_enum| {
-            let ref_ident = &ref_enum.ident;
-            let ref_ident_str = format!("{ref_ident}");
+    info.referenced_enums.iter().map(move |ref_enum| {
+        let ref_ident = &ref_enum.ident;
+        let ref_enum = quote! {
+            super::generic_enum::#ref_ident<#(#generic_args),*>
+        };
 
-            let (other_node_idents, other_node_str): (Vec<_>, Vec<_>) = info
-                .referenced_enums
-                .iter()
-                .map(|other_enum| &other_enum.ident)
-                .filter(|other_ident| other_ident != &ref_ident)
-                .map(|other_ident| (other_ident.clone(), format!("{other_ident}")))
-                .unzip();
+        let from_impl = parse_quote! {
+            impl<#(#generic_params),*>
+                From<#ref_enum>
+                for #ident<#(#generic_args),*> {
+                    fn from(obj: #ref_enum) -> Self {
+                        Self::#ref_ident(obj)
+                    }
+                }
 
-            let ref_enum = quote! {
-                super::generic_enum::#ref_ident<#(#generic_args),*>
-            };
 
-            let try_as_ref_impl = parse_quote! {
-                impl<#(#generic_params),*>
-                    ::typed_dag::TryAsRef<#ref_enum>
-                    for #ident<#(#generic_args),*> {
-                        type Error = ::typed_dag::Error;
-                        fn try_as_ref(&self) -> Result<&#ref_enum, Self::Error> {
-                            match self {
-                                Self::#ref_ident(val) => Ok(val),
-                                #(
-                                    Self::#other_node_idents(_) =>
-                                        Err(Self::Error::IncorrectType{
-                                            expected: #ref_ident_str,
-                                            actual: #other_node_str,
-                                        }),
-                                )*
-                            }
+        };
+
+        from_impl
+    })
+}
+
+fn generate_container_try_as_ref(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + '_ {
+    let ident = &info.item_enum.ident;
+    let generic_params = info.generic_params();
+    let generic_args = info.generic_args();
+
+    info.referenced_enums.iter().map(move |ref_enum| {
+        let ref_ident = &ref_enum.ident;
+        let ref_ident_str = format!("{ref_ident}");
+
+        let (other_node_idents, other_node_str): (Vec<_>, Vec<_>) = info
+            .referenced_enums
+            .iter()
+            .map(|other_enum| &other_enum.ident)
+            .filter(|other_ident| other_ident != &ref_ident)
+            .map(|other_ident| (other_ident.clone(), format!("{other_ident}")))
+            .unzip();
+
+        let ref_enum = quote! {
+            super::generic_enum::#ref_ident<#(#generic_args),*>
+        };
+
+        let try_as_ref_impl = parse_quote! {
+            impl<#(#generic_params),*>
+                ::typed_dag::TryAsRef<#ref_enum>
+                for #ident<#(#generic_args),*> {
+                    type Error = ::typed_dag::Error;
+                    fn try_as_ref(&self) -> Result<&#ref_enum, Self::Error> {
+                        match self {
+                            Self::#ref_ident(val) => Ok(val),
+                            #(
+                                Self::#other_node_idents(_) =>
+                                    Err(Self::Error::IncorrectType{
+                                        expected: #ref_ident_str,
+                                        actual: #other_node_str,
+                                    }),
+                            )*
                         }
                     }
-            };
+                }
+        };
 
-            let from_impl = parse_quote! {
-                impl<#(#generic_params),*>
-                    From<#ref_enum>
-                    for #ident<#(#generic_args),*> {
-                        fn from(obj: #ref_enum) -> Self {
-                            Self::#ref_ident(obj)
-                        }
-                    }
-
-
-            };
-
-            vec![try_as_ref_impl, from_impl].into_iter()
-        })
-        .flatten()
+        try_as_ref_impl
+    })
 }
 
 fn generate_default_container_impl(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + '_ {
@@ -542,6 +554,53 @@ fn generate_default_container_impl(info: &EnumInfo) -> impl Iterator<Item = syn:
     };
 
     std::iter::once(item)
+}
+
+fn generate_container_trait(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + '_ {
+    let ident = &info.item_enum.ident;
+    let ref_type_param = info.ref_type_param();
+
+    let obj_args = info.generic_args();
+
+    let trait_params: Vec<_> = info.generic_params();
+
+    let trait_args: Vec<_> = info.generic_args();
+
+    let from_bounds = info.referenced_enums.iter().map(|ref_enum| {
+        let ref_ident = &ref_enum.ident;
+        parse_quote! {
+            Self: From<super::generic_enum::#ref_ident<#(#obj_args),*>>
+        }
+    });
+
+    let try_as_ref_bounds = info.referenced_enums.iter().map(|ref_enum| {
+        let ref_ident = &ref_enum.ident;
+        parse_quote! {
+            Self: ::typed_dag::TryAsRef<
+                    super::generic_enum::#ref_ident<#(#obj_args),*>,
+                    Error = ::typed_dag::Error
+                >
+        }
+    });
+    let trait_bounds: Vec<syn::WherePredicate> = std::iter::empty()
+        .chain(from_bounds)
+        .chain(try_as_ref_bounds)
+        .collect();
+
+    let trait_def = parse_quote! {
+        pub trait #ident<#(#trait_params),*>
+        where
+            #( #trait_bounds, )*
+        { }
+    };
+    let trait_impl = parse_quote! {
+        impl<#(#trait_params,)* #ref_type_param>
+            #ident<#(#trait_args,)*> for #ref_type_param
+        where
+            #( #trait_bounds, )*
+        {}
+    };
+    vec![trait_def, trait_impl].into_iter()
 }
 
 fn generate_visitor_trait(info: &EnumInfo) -> impl Iterator<Item = syn::Item> + '_ {
@@ -830,18 +889,28 @@ pub fn linearize_recursive_enums(
         ))
         .chain(apply_generator(
             &enums,
-            Some("container"),
+            Some("default_container"),
             generate_container_enum,
         ))
         .chain(apply_generator(
             &enums,
-            Some("container"),
-            generate_container_impl,
+            Some("default_container"),
+            generate_container_from,
+        ))
+        .chain(apply_generator(
+            &enums,
+            Some("default_container"),
+            generate_container_try_as_ref,
+        ))
+        .chain(apply_generator(
+            &enums,
+            Some("default_container"),
+            generate_default_container_impl,
         ))
         .chain(apply_generator(
             &enums,
             Some("container"),
-            generate_default_container_impl,
+            generate_container_trait,
         ))
         .chain(apply_generator(
             &enums,

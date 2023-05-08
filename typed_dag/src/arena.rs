@@ -1,6 +1,6 @@
 use crate::{
-    BuilderRef, BuilderToStorage, HasDefaultContainer, RecursiveFamily, RecursiveObj, StorageRef,
-    VisitingRef,
+    AbsolutePos, BuilderToStorage, HasDefaultContainer, RecursiveFamily, RecursiveObj, RelativePos,
+    ValueOwner, View,
 };
 use std::marker::PhantomData;
 
@@ -22,12 +22,12 @@ impl<Container> Arena<Container, ()> {
         }
     }
 
-    pub fn push<'ext, Obj: RecursiveObj<'ext, Ref = BuilderRef>>(
+    pub fn push<'ext, Obj: RecursiveObj<'ext, NodeRef = AbsolutePos, ValueRef = ValueOwner>>(
         &mut self,
         builder_obj: Obj,
-    ) -> BuilderRef<Obj::Family>
+    ) -> AbsolutePos<Obj::Family>
     where
-        <Obj::Family as RecursiveFamily<'ext>>::Sibling<StorageRef>: Into<Container>,
+        <Obj::Family as RecursiveFamily<'ext>>::Sibling<RelativePos, ValueOwner>: Into<Container>,
     {
         let converter = BuilderToStorage {
             new_storage_pos: self.items.len(),
@@ -36,13 +36,13 @@ impl<Container> Arena<Container, ()> {
         let storage_obj = <Obj::Family as RecursiveFamily<'ext>>::convert(builder_obj, converter);
         let container: Container = storage_obj.into();
         self.items.push(container);
-        BuilderRef {
+        AbsolutePos {
             abs_pos,
             phantom: PhantomData,
         }
     }
 
-    pub fn finalize<Target>(mut self, root_ref: BuilderRef<Target>) -> Arena<Container, Target> {
+    pub fn finalize<Target>(mut self, root_ref: AbsolutePos<Target>) -> Arena<Container, Target> {
         // References may only point to earlier elements, so anything
         // after the root ref may be discarded.  This also avoids
         // needing to store the location of the root object in the
@@ -58,11 +58,11 @@ impl<Container> Arena<Container, ()> {
 impl<Container, Target> Arena<Container, Target> {
     pub fn visit_by_ref<RefTarget>(
         &self,
-        builder_ref: BuilderRef<RefTarget>,
-    ) -> VisitingRef<Container, RefTarget> {
+        builder_ref: AbsolutePos<RefTarget>,
+    ) -> View<Container, RefTarget> {
         let range = ..builder_ref.abs_pos + 1;
         let view = self.items.get(range).expect("Index out of bounds");
-        VisitingRef {
+        View {
             view,
             phantom: PhantomData,
         }
@@ -71,11 +71,11 @@ impl<Container, Target> Arena<Container, Target> {
     /// Return a visiting reference to the root node.  This is only
     /// available for finalized objects, since it requires the type of
     /// the root node is known.
-    pub fn visit_root<'ext: 'view, 'view>(&'view self) -> VisitingRef<'view, Container, Target>
+    pub fn visit_root<'ext: 'view, 'view>(&'view self) -> View<'view, Container, Target>
     where
         Target: RecursiveFamily<'ext>,
     {
-        VisitingRef {
+        View {
             view: &self.items,
             phantom: PhantomData,
         }
@@ -91,14 +91,14 @@ impl<Target: HasDefaultContainer> Arena<Target::Container, Target> {
     /// constructed using `new()` and `push()`.
     pub fn build<Func>(func: Func) -> Self
     where
-        Func: FnOnce(&mut Arena<Target::Container>) -> BuilderRef<Target>,
+        Func: FnOnce(&mut Arena<Target::Container>) -> AbsolutePos<Target>,
     {
         Self::try_build(|arena| -> Result<_, std::convert::Infallible> { Ok(func(arena)) }).unwrap()
     }
 
     pub fn try_build<Func, Error>(func: Func) -> Result<Self, Error>
     where
-        Func: FnOnce(&mut Arena<Target::Container>) -> Result<BuilderRef<Target>, Error>,
+        Func: FnOnce(&mut Arena<Target::Container>) -> Result<AbsolutePos<Target>, Error>,
     {
         let mut arena = Arena::new();
         let root_ref = func(&mut arena)?;

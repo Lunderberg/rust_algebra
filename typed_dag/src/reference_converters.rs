@@ -1,4 +1,4 @@
-use crate::{BuilderRef, Error, RecursiveFamily, RefConverter, RefType, StorageRef, VisitingRef};
+use crate::{AbsolutePos, Error, NodeRefType, RecursiveFamily, RefConverter, RelativePos, View};
 use std::marker::PhantomData;
 
 /// Convert from a BuilderRef to StorageRef
@@ -12,13 +12,13 @@ pub(crate) struct BuilderToStorage {
     pub(crate) new_storage_pos: usize,
 }
 impl<'ext> RefConverter<'ext> for BuilderToStorage {
-    type FromRef = BuilderRef;
-    type ToRef = StorageRef;
+    type FromRef = AbsolutePos;
+    type ToRef = RelativePos;
 
     fn convert_ref<Target: RecursiveFamily<'ext>>(
         &self,
-        from_ref: &<Self::FromRef as RefType<'ext>>::Node<Target>,
-    ) -> <Self::ToRef as RefType<'ext>>::Node<Target> {
+        from_ref: &<Self::FromRef as NodeRefType<'ext>>::Node<Target>,
+    ) -> <Self::ToRef as NodeRefType<'ext>>::Node<Target> {
         let rel_pos = self
             .new_storage_pos
             .checked_sub(from_ref.abs_pos)
@@ -28,7 +28,7 @@ impl<'ext> RefConverter<'ext> for BuilderToStorage {
             })
             .unwrap();
 
-        StorageRef {
+        RelativePos {
             rel_pos,
             phantom: PhantomData,
         }
@@ -46,13 +46,13 @@ pub(crate) struct StorageToVisiting<'view, Container> {
     pub(crate) view: &'view [Container],
 }
 impl<'ext: 'view, 'view, Container> RefConverter<'ext> for StorageToVisiting<'view, Container> {
-    type FromRef = StorageRef;
-    type ToRef = VisitingRef<'view, Container>;
+    type FromRef = RelativePos;
+    type ToRef = View<'view, Container>;
 
     fn convert_ref<Target: RecursiveFamily<'ext>>(
         &self,
-        from_ref: &<Self::FromRef as RefType<'ext>>::Node<Target>,
-    ) -> <Self::ToRef as RefType<'ext>>::Node<Target> {
+        from_ref: &<Self::FromRef as NodeRefType<'ext>>::Node<Target>,
+    ) -> <Self::ToRef as NodeRefType<'ext>>::Node<Target> {
         let index = self
             .view
             .len()
@@ -62,7 +62,7 @@ impl<'ext: 'view, 'view, Container> RefConverter<'ext> for StorageToVisiting<'vi
                 subgraph_size: self.view.len(),
             })
             .unwrap();
-        VisitingRef {
+        View {
             view: &self.view[..index],
             phantom: PhantomData,
         }

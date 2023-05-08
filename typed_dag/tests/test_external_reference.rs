@@ -8,7 +8,6 @@ mod expr {
         Add(IntExpr<'a>, IntExpr<'a>),
     }
 }
-
 impl<'a, V: expr::visitor::IntExpr<'a>> expr::IntExpr<'a, V> {
     fn eval(&self) -> i64 {
         use expr::IntExpr::*;

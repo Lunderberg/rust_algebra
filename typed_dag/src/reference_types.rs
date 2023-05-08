@@ -1,7 +1,10 @@
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 
-use crate::{RecursiveFamily, RecursiveObj, RefType, TypedNodeRef, ValueOwner, ValueVisitor};
+use crate::{
+    NodeRefType, RecursiveFamily, RecursiveObj, TypedNodeRef, ValueOwner, ValueRefType,
+    ValueVisitor,
+};
 
 /// A reference to an object, returned from [`Arena::push`]
 ///
@@ -14,12 +17,12 @@ use crate::{RecursiveFamily, RecursiveObj, RefType, TypedNodeRef, ValueOwner, Va
 /// 2. Each new object must express references using `BuilderRef`.
 ///
 /// 3. Objects in the [`Arena`] may not be modified.
-pub struct BuilderRef<Target = ()> {
+pub struct AbsolutePos<Target = ()> {
     pub(crate) abs_pos: usize,
     pub(crate) phantom: PhantomData<Target>,
 }
 
-impl<Target> Clone for BuilderRef<Target> {
+impl<Target> Clone for AbsolutePos<Target> {
     fn clone(&self) -> Self {
         Self {
             abs_pos: self.abs_pos,
@@ -27,8 +30,8 @@ impl<Target> Clone for BuilderRef<Target> {
         }
     }
 }
-impl<Target> Copy for BuilderRef<Target> {}
-impl<Target> Debug for BuilderRef<Target> {
+impl<Target> Copy for AbsolutePos<Target> {}
+impl<Target> Debug for AbsolutePos<Target> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BuilderRef")
             .field("abs_pos", &self.abs_pos)
@@ -36,13 +39,13 @@ impl<Target> Debug for BuilderRef<Target> {
             .finish()
     }
 }
-impl<'ext> RefType<'ext> for BuilderRef {
-    type ValueRef = ValueOwner;
-    type Node<Target: RecursiveFamily<'ext>> = BuilderRef<Target>;
+impl<'ext> NodeRefType<'ext> for AbsolutePos {
+    type Node<Target: RecursiveFamily<'ext>> = AbsolutePos<Target>;
+    type DefaultValueRef = ValueOwner;
 }
 
-impl<'ext, Target: RecursiveFamily<'ext>> TypedNodeRef<'ext> for BuilderRef<Target> {
-    type Untyped = BuilderRef;
+impl<'ext, Target: RecursiveFamily<'ext>> TypedNodeRef<'ext> for AbsolutePos<Target> {
+    type Untyped = AbsolutePos;
     type Target = Target;
 }
 
@@ -53,20 +56,20 @@ impl<'ext, Target: RecursiveFamily<'ext>> TypedNodeRef<'ext> for BuilderRef<Targ
 /// the [`Arena`]'s internal storage.  Since following a reference
 /// must result in a strictly smaller index within the internal
 /// storage, no reference may lead back to the original node.
-pub struct StorageRef<Target = ()> {
+pub struct RelativePos<Target = ()> {
     pub(crate) rel_pos: usize,
     pub(crate) phantom: PhantomData<Target>,
 }
-impl<Target> Clone for StorageRef<Target> {
+impl<Target> Clone for RelativePos<Target> {
     fn clone(&self) -> Self {
-        StorageRef {
+        RelativePos {
             rel_pos: self.rel_pos,
             phantom: PhantomData,
         }
     }
 }
-impl<Target> Copy for StorageRef<Target> {}
-impl<Target> Debug for StorageRef<Target> {
+impl<Target> Copy for RelativePos<Target> {}
+impl<Target> Debug for RelativePos<Target> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StorageRef")
             .field("rel_pos", &self.rel_pos)
@@ -75,12 +78,12 @@ impl<Target> Debug for StorageRef<Target> {
     }
 }
 
-impl<'ext> RefType<'ext> for StorageRef {
-    type ValueRef = ValueOwner;
-    type Node<Target: RecursiveFamily<'ext>> = StorageRef<Target>;
+impl<'ext> NodeRefType<'ext> for RelativePos {
+    type Node<Target: RecursiveFamily<'ext>> = RelativePos<Target>;
+    type DefaultValueRef = ValueOwner;
 }
-impl<'ext, Target: RecursiveFamily<'ext>> TypedNodeRef<'ext> for StorageRef<Target> {
-    type Untyped = StorageRef;
+impl<'ext, Target: RecursiveFamily<'ext>> TypedNodeRef<'ext> for RelativePos<Target> {
+    type Untyped = RelativePos;
     type Target = Target;
 }
 
@@ -94,11 +97,11 @@ impl<'ext, Target: RecursiveFamily<'ext>> TypedNodeRef<'ext> for StorageRef<Targ
 /// subslice of the original view.  Since the slice of a sub-object
 /// must be strictly smaller than an object's slice, no reference can
 /// return the original object, making cycles unrepresentable.
-pub struct VisitingRef<'view, Container, Target = ()> {
+pub struct View<'view, Container, Target = ()> {
     pub(crate) view: &'view [Container],
     pub(crate) phantom: PhantomData<&'view Target>,
 }
-impl<'view, Container, Target> Clone for VisitingRef<'view, Container, Target> {
+impl<'view, Container, Target> Clone for View<'view, Container, Target> {
     fn clone(&self) -> Self {
         Self {
             view: self.view,
@@ -106,8 +109,8 @@ impl<'view, Container, Target> Clone for VisitingRef<'view, Container, Target> {
         }
     }
 }
-impl<'view, Container, Target> Copy for VisitingRef<'view, Container, Target> {}
-impl<'view, Container, Target> Debug for VisitingRef<'view, Container, Target> {
+impl<'view, Container, Target> Copy for View<'view, Container, Target> {}
+impl<'view, Container, Target> Debug for View<'view, Container, Target> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VisitingRef")
             .field("view", &"view")
@@ -116,34 +119,25 @@ impl<'view, Container, Target> Debug for VisitingRef<'view, Container, Target> {
     }
 }
 
-impl<'ext: 'view, 'view, Container> RefType<'ext> for VisitingRef<'view, Container> {
-    type ValueRef = ValueVisitor<'view>;
-    type Node<Target: RecursiveFamily<'ext>> = VisitingRef<'view, Container, Target>;
+impl<'ext: 'view, 'view, Container> NodeRefType<'ext> for View<'view, Container> {
+    type Node<Target: RecursiveFamily<'ext>> = View<'view, Container, Target>;
+    type DefaultValueRef = ValueVisitor<'view>;
 }
 impl<'ext: 'view, 'view, Container, Target: RecursiveFamily<'ext>> TypedNodeRef<'ext>
-    for VisitingRef<'view, Container, Target>
+    for View<'view, Container, Target>
 {
-    type Untyped = VisitingRef<'view, Container>;
+    type Untyped = View<'view, Container>;
     type Target = Target;
 }
 
-pub struct NestedVisitor<'view, R, Target = ()> {
-    _inner: R,
-    phantom: PhantomData<&'view Target>,
+pub struct NestedVisitor<N, V, Target = ()> {
+    phantom: PhantomData<(N, V, Target)>,
 }
-impl<'ext: 'view, 'view, R: RefType<'ext, ValueRef = ValueVisitor<'view>>> RefType<'ext>
-    for NestedVisitor<'view, R>
-{
-    type ValueRef = ValueVisitor<'view>;
-    type Node<Target: RecursiveFamily<'ext>> = Target::Sibling<R>;
+impl<'ext, N: NodeRefType<'ext>, V: ValueRefType<'ext>> NodeRefType<'ext> for NestedVisitor<N, V> {
+    type Node<Target: RecursiveFamily<'ext>> = Target::Sibling<N, V>;
+    type DefaultValueRef = N::DefaultValueRef;
 }
-impl<
-        'ext: 'view,
-        'view,
-        R: RefType<'ext, ValueRef = ValueVisitor<'view>>,
-        Obj: RecursiveObj<'ext, Ref = R>,
-    > TypedNodeRef<'ext> for Obj
-{
-    type Untyped = NestedVisitor<'view, R>;
+impl<'ext, Obj: RecursiveObj<'ext>> TypedNodeRef<'ext> for Obj {
+    type Untyped = NestedVisitor<Obj::NodeRef, Obj::ValueRef>;
     type Target = Obj::Family;
 }

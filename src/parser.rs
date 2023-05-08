@@ -1,5 +1,7 @@
 use crate::{expr::*, DecimalLiteral, Error, OperatorPrecedence, Token, Tokenizer};
-use typed_dag::{Arena, BuilderRef, HasDefaultContainer, RecursiveObj, StorageRef, Visitable};
+use typed_dag::{
+    AbsolutePos, Arena, HasDefaultContainer, RecursiveObj, RelativePos, ValueOwner, Visitable,
+};
 
 use std::convert::From;
 use std::fmt::{Display, Formatter};
@@ -10,7 +12,7 @@ type Container = <crate::expr::Expr as HasDefaultContainer>::Container;
 pub fn parse_expr<I: IntoIterator<Item = char>>(
     chars: I,
     arena: &mut Arena<Container>,
-) -> Result<BuilderRef<Expr>, Error> {
+) -> Result<AbsolutePos<Expr>, Error> {
     let tokens = Tokenizer::new(chars.into_iter());
     let mut parser = Parser::new(tokens, arena);
     let top_expr = parser.expect_expr()?;
@@ -28,22 +30,22 @@ struct Parser<'arena, I: Iterator<Item = Result<Token, Error>>> {
 }
 
 enum ParseExpr {
-    Int(BuilderRef<Int>),
-    Bool(BuilderRef<Bool>),
-    Rational(BuilderRef<Rational>),
+    Int(AbsolutePos<Int>),
+    Bool(AbsolutePos<Bool>),
+    Rational(AbsolutePos<Rational>),
 }
-impl From<BuilderRef<Int>> for ParseExpr {
-    fn from(value: BuilderRef<Int>) -> Self {
+impl From<AbsolutePos<Int>> for ParseExpr {
+    fn from(value: AbsolutePos<Int>) -> Self {
         ParseExpr::Int(value)
     }
 }
-impl From<BuilderRef<Bool>> for ParseExpr {
-    fn from(value: BuilderRef<Bool>) -> Self {
+impl From<AbsolutePos<Bool>> for ParseExpr {
+    fn from(value: AbsolutePos<Bool>) -> Self {
         ParseExpr::Bool(value)
     }
 }
-impl From<BuilderRef<Rational>> for ParseExpr {
-    fn from(value: BuilderRef<Rational>) -> Self {
+impl From<AbsolutePos<Rational>> for ParseExpr {
+    fn from(value: AbsolutePos<Rational>) -> Self {
         ParseExpr::Rational(value)
     }
 }
@@ -108,10 +110,14 @@ impl<'arena, I: Iterator<Item = Result<Token, Error>>> Parser<'arena, I> {
         }
     }
 
-    fn push<Obj: RecursiveObj<'static, Ref = BuilderRef>>(&mut self, obj: Obj) -> ParseExpr
+    fn push<Obj: RecursiveObj<'static, NodeRef = AbsolutePos, ValueRef = ValueOwner>>(
+        &mut self,
+        obj: Obj,
+    ) -> ParseExpr
     where
-        <Obj::Family as typed_dag::RecursiveFamily<'static>>::Sibling<StorageRef>: Into<Container>,
-        BuilderRef<Obj::Family>: Into<ParseExpr>,
+        <Obj::Family as typed_dag::RecursiveFamily<'static>>::Sibling<RelativePos, ValueOwner>:
+            Into<Container>,
+        AbsolutePos<Obj::Family>: Into<ParseExpr>,
     {
         self.arena.push(obj).into()
     }

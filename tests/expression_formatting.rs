@@ -1,6 +1,6 @@
 use algebra::{Bool, Int, Rational};
 use std::fmt::Display;
-use typed_dag::{Arena, RecursiveFamily, Visitable, VisitingRef, VisitorOf};
+use typed_dag::{Arena, RecursiveFamily, View, Visitable, VisitorOf};
 use typed_dag_derive::tree;
 
 // Explicitly use a validate() function instead of adding these lines
@@ -12,9 +12,11 @@ fn validate<'ext: 'view, 'view, Container, Target>(
     expected: &str,
 ) where
     Target: RecursiveFamily<'ext>,
-    VisitingRef<'view, Container>:
-        VisitorOf<'ext, Target, Node<Target> = VisitingRef<'view, Container, Target>>,
-    <Target as RecursiveFamily<'ext>>::Sibling<VisitingRef<'view, Container>>: Display,
+    View<'view, Container>: VisitorOf<'ext, Target, Node<Target> = View<'view, Container, Target>>,
+    <Target as RecursiveFamily<'ext>>::Sibling<
+        View<'view, Container>,
+        <View<'view, Container> as VisitorOf<'ext, Target>>::ValueRef,
+    >: Display,
 {
     let formatted = format!("{}", arena.visit_root().expand());
     assert_eq!(formatted, expected);

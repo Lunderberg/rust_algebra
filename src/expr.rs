@@ -1,4 +1,4 @@
-use typed_dag::RefType;
+use typed_dag::NodeRefType;
 use typed_dag_derive::typed_dag;
 
 #[typed_dag]
@@ -55,7 +55,7 @@ pub(crate) trait BinaryOperator {
     fn display_str(&self) -> Option<&str>;
 }
 
-impl<R: RefType<'static>> BinaryOperator for Int<R> {
+impl<R: NodeRefType<'static>> BinaryOperator for Int<R> {
     fn precedence(&self) -> Option<OperatorPrecedence> {
         match self {
             Int::Literal(_) => None,
@@ -81,7 +81,7 @@ impl<R: RefType<'static>> BinaryOperator for Int<R> {
     }
 }
 
-impl<R: RefType<'static>> BinaryOperator for Bool<R> {
+impl<R: NodeRefType<'static>> BinaryOperator for Bool<R> {
     fn precedence(&self) -> Option<OperatorPrecedence> {
         match self {
             Bool::Literal(_) => None,
@@ -105,7 +105,7 @@ impl<R: RefType<'static>> BinaryOperator for Bool<R> {
     }
 }
 
-impl<R: RefType<'static>> BinaryOperator for Rational<R> {
+impl<R: NodeRefType<'static>> BinaryOperator for Rational<R> {
     fn precedence(&self) -> Option<OperatorPrecedence> {
         match self {
             Rational::Int(_) => None,
